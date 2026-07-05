@@ -1,2 +1,2 @@
 aiogram
-yt-dlp>=2025.01.01
+git+https://github.com/yt-dlp/yt-dlp.git
