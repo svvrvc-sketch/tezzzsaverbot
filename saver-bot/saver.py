@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 
 # Bot tokeningizni shu yerga yozing
-API_TOKEN = '8747746960:AAFPVkSq4o5gfbayRU1bO0Q_rXGGoY5hMJY'
+API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
