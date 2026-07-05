@@ -17,7 +17,7 @@ API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
 ADMIN_ID = 5111794979  
 
 USE_MANDATORY_SUB = True     
-REQUIRED_CHANNEL = "@openwebacademy" 
+REQUIRED_CHANNEL = "@svpains" 
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
@@ -131,7 +131,7 @@ async def set_language(callback: types.CallbackQuery):
     data["users"][user_id]["lang"] = lang; save_data(data)
     await callback.message.edit_text(LANGUAGES[lang]["start"], parse_mode="Markdown")
 
-# --- TO'G'RILANGAN ADMIN PANEL ---
+# --- ADMIN PANEL ---
 @dp.callback_query(F.data == "admin_panel")
 async def open_admin_panel(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return
@@ -155,41 +155,19 @@ async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(AdminStates.waiting_for_broadcast)
     await callback.message.edit_text("📢 Rassilka xabarini (matn, rasm yoki video) yuboring:")
 
-# --- MUTLAQ TO'G'RILANGAN RASSILKA TIZIMI ---
 @dp.message(AdminStates.waiting_for_broadcast)
 async def do_broadcast(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
     await state.clear()
-    
-    data = load_data()
-    users = list(data["users"].keys())
-    
+    data = load_data(); users = list(data["users"].keys())
     status_msg = await message.answer(f"⏳ Xabar `{len(users)}` ta foydalanuvchiga yuborilmoqda...")
-    
-    success_count = 0
-    fail_count = 0
-    
+    success_count = 0; fail_count = 0
     for u in users:
         try:
-            # ID larni integer (son) ko'rinishida yuborish majburiy
-            await bot.copy_message(
-                chat_id=int(u), 
-                from_chat_id=message.chat.id, 
-                message_id=message.message_id
-            )
-            success_count += 1
-            # Telegram bloklamasligi uchun qisqa uzilish
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            fail_count += 1
-            pass
-            
-    await status_msg.edit_text(
-        f"✅ **Rassilka yakunlandi!**\n\n"
-        f"🚀 Muvaffaqiyatli: `{success_count}` ta\n"
-        f"❌ Yuborilmadi (Botni bloklaganlar): `{fail_count}` ta",
-        parse_mode="Markdown"
-    )
+            await bot.copy_message(chat_id=int(u), from_chat_id=message.chat.id, message_id=message.message_id)
+            success_count += 1; await asyncio.sleep(0.05)
+        except: fail_count += 1
+    await status_msg.edit_text(f"✅ **Rassilka yakunlandi!**\n\n🚀 Muvaffaqiyatli: `{success_count}` ta\n❌ Yuborilmadi: `{fail_count}` ta", parse_mode="Markdown")
 
 @dp.callback_query(F.data == "admin_ban")
 async def start_ban(callback: types.CallbackQuery, state: FSMContext):
@@ -201,12 +179,9 @@ async def start_ban(callback: types.CallbackQuery, state: FSMContext):
 async def do_ban(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
     await state.clear()
-    target_id = message.text.strip()
-    data = load_data()
-    if target_id in data["banned"]:
-        data["banned"].remove(target_id); msg = "Blokdan chiqdi."
-    else:
-        data["banned"].append(target_id); msg = "Bloklandi."
+    target_id = message.text.strip(); data = load_data()
+    if target_id in data["banned"]: data["banned"].remove(target_id); msg = "Blokdan chiqdi."
+    else: data["banned"].append(target_id); msg = "Bloklandi."
     save_data(data)
     await message.answer(msg)
 
@@ -232,23 +207,19 @@ async def handle_messages(message: types.Message):
         sub_builder.row(types.InlineKeyboardButton(text=LANGUAGES[lang]["check_sub_btn"], callback_data="check_subscription"))
         return await message.answer(LANGUAGES[lang]["sub_required"], reply_markup=sub_builder.as_markup())
 
-    url = urls[0]
-    platform = None
+    url = urls[0]; platform = None
     if "instagram.com" in url: platform = "instagram"
     elif "tiktok.com" in url: platform = "tiktok"
     elif "youtube.com" in url or "youtu.be" in url: platform = "youtube"
     elif "pinterest.com" in url or "pin.it" in url: platform = "pinterest"
 
     if not platform: return
-
     data["users"][user_id]["last_url"] = url; save_data(data)
 
     if platform == "youtube":
         builder = InlineKeyboardBuilder()
-        builder.row(
-            types.InlineKeyboardButton(text="🎬 720p Video", callback_data="yt_dl|720"),
-            types.InlineKeyboardButton(text="📺 360p Video", callback_data="yt_dl|360")
-        )
+        builder.row(types.InlineKeyboardButton(text="🎬 720p Video", callback_data="yt_dl|720"))
+        builder.row(types.InlineKeyboardButton(text="📺 360p Video", callback_data="yt_dl|360"))
         await message.answer(LANGUAGES[lang]["choose_format"], reply_markup=builder.as_markup())
     else:
         status_msg = await message.answer(LANGUAGES[lang]["wait"])
@@ -261,22 +232,29 @@ async def youtube_download_callback(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id); data = load_data(); lang = data["users"].get(user_id, {}).get("lang", "uz")
     url = data["users"].get(user_id, {}).get("last_url", "")
     if not url: return await callback.answer("Xatolik.")
-
     quality = callback.data.split("|")[1]
     ydl_format = f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}]/best'
-    
     await callback.message.edit_text(LANGUAGES[lang]["wait"])
     await process_video_download(callback.message, url, lang, ydl_format)
 
+# --- INLINE ULACHISH FUNKSIYASI (VIDEONI O'ZINI YUBORISH) ---
+@dp.inline_query()
+async def inline_share_video(inline_query: types.InlineQuery):
+    file_id = inline_query.query.strip()
+    if not file_id: return
+    
+    # Videoni to'g'ridan-to'g'ri (havolasiz) boshqa chatga yuborish
+    result = types.InlineQueryResultCachedVideo(
+        id="share_video_res",
+        video_file_id=file_id,
+        title="Yuklab olingan video",
+        caption="⚡️ @tezzzsaverbot orqali yuklab olindi!"
+    )
+    await inline_query.answer([result], cache_time=1)
+
+# --- VIDEO YUKLASH VA TUGMALARNI BIRIN-MA-KETIN CHIQARISH ---
 async def process_video_download(msg_to_edit, url, lang, ydl_format):
     bot_info = await bot.get_me()
-    
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"),
-        types.InlineKeyboardButton(text="🚀 Ulashish", url=f"https://t.me/share/url?url=https://t.me/{bot_info.username}?start=share")
-    )
-
     ydl_opts = {
         'format': ydl_format,
         'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
@@ -298,12 +276,24 @@ async def process_video_download(msg_to_edit, url, lang, ydl_format):
 
         if os.path.exists(filename):
             file_input = types.FSInputFile(filename)
-            await bot.send_video(
+            
+            # 1. Avval videoni botning o'ziga yuboramiz (File_ID olish uchun)
+            sent_video = await bot.send_video(
                 chat_id=msg_to_edit.chat.id, 
                 video=file_input, 
-                caption=LANGUAGES[lang]["success"],
-                reply_markup=builder.as_markup()
+                caption=LANGUAGES[lang]["success"]
             )
+            
+            # 2. Tugmalarni bittasi tepada, bittasi pastda qilib shakllantiramiz
+            builder = InlineKeyboardBuilder()
+            builder.row(types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"))
+            
+            # switch_inline_query orqali havola emas, videoni o'zi ulashiladi!
+            builder.row(types.InlineKeyboardButton(text="🚀 Ulashish", switch_inline_query=sent_video.video.file_id))
+            
+            # 3. Videoga yangi tugmalarni biriktiramiz
+            await sent_video.edit_reply_markup(reply_markup=builder.as_markup())
+            
             await msg_to_edit.delete()
             os.remove(filename)
         else:
@@ -313,7 +303,7 @@ async def process_video_download(msg_to_edit, url, lang, ydl_format):
         await msg_to_edit.edit_text(LANGUAGES[lang]["fail"])
 
 # --- WEB SERVER ---
-async def handle_root(request): return web.Response(text="Bot is running completely fixed!")
+async def handle_root(request): return web.Response(text="Bot buttons are now stacked vertically and share feature fixed!")
 async def start_web_server():
     app = web.Application(); app.router.add_get('/', handle_root)
     runner = web.AppRunner(app); await runner.setup()
