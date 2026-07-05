@@ -50,27 +50,27 @@ def init_user_data(data, user_id):
 
 LANGUAGES = {
     "uz": {
-        "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan (Instagram, TikTok, YouTube) havola yuboring, yuklab beraman! 🚀",
-        "wait": "⏳ Musiqa qidirilmoqda va tahlil qilinmoqda (Shazam)...",
-        "choose_format": "🎬 Havola aniqlandi! Tanlang:",
+        "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan (Instagram, TikTok, YouTube, Pinterest) havola yuboring, uni bir zumda yuklab beraman! 🚀",
+        "wait": "⏳ Video yuklanmoqda, iltimos kuting...",
+        "choose_format": "🎬 YouTube videosi aniqlandi! Yuklab olish sifatini tanlang:",
         "success": "⚡️ @tezzzsaverbot orqali yuklab olindi!",
-        "fail": "❌ Xatolik yuz berdi. Yuklab bo'lmadi.",
+        "fail": "❌ Yuklashda xatolik yuz berdi yoki havola noto'g'ri.",
         "sub_required": "⚠️ **Botdan foydalanish uchun kanalimizga a'zo bo'lishingiz shart!**",
         "check_sub_btn": "✅ A'zo bo'ldim / Tekshirish"
     },
     "ru": {
         "start": "⚡️ **Добро пожаловать!**\nОтправьте мне ссылку, и я скачаю её! 🚀",
-        "wait": "⏳ Поиск и анализ музыки (Shazam)...",
-        "choose_format": "🎬 Ссылка обнаружена! Выберите:",
+        "wait": "⏳ Видео скачивается, подождите...",
+        "choose_format": "🎬 Обнаружено видео YouTube! Выберите качество:",
         "success": "⚡️ Скачано с помощью @tezzzsaverbot!",
-        "fail": "❌ Произошла ошибка при скачивании.",
-        "sub_required": "⚠️ **Для использования бота вы должны подписаться на канал!**",
+        "fail": "❌ Ошибка при скачивании.",
+        "sub_required": "⚠️ **Для использования бота подпишитесь на канал!**",
         "check_sub_btn": "✅ Я подписался"
     },
     "en": {
         "start": "⚡️ **Welcome!**\nSend me a link, and I will download it! 🚀",
-        "wait": "⏳ Searching and analyzing music (Shazam)...",
-        "choose_format": "🎬 Link detected! Choose:",
+        "wait": "⏳ Video is downloading, please wait...",
+        "choose_format": "🎬 YouTube video detected! Choose quality:",
         "success": "⚡️ Downloaded via @tezzzsaverbot!",
         "fail": "❌ Error occurred during download.",
         "sub_required": "⚠️ **To use the bot, you must subscribe to our channel!**",
@@ -122,7 +122,7 @@ async def cmd_start(message: types.Message):
         
     await message.answer("🌐 Tilni tanlang / Choose language / Выберите язык:", reply_markup=builder.as_markup())
 
-# --- TILNI O'ZGARTIRISH HENDLERI ---
+# --- TIL HANDLERI ---
 @dp.callback_query(F.data.startswith("lang_"))
 @check_ban
 async def set_language(callback: types.CallbackQuery):
@@ -131,14 +131,14 @@ async def set_language(callback: types.CallbackQuery):
     data["users"][user_id]["lang"] = lang; save_data(data)
     await callback.message.edit_text(LANGUAGES[lang]["start"], parse_mode="Markdown")
 
-# --- ADMIN PANEL HENDLERLARI ---
+# --- TO'G'RILANGAN ADMIN PANEL ---
 @dp.callback_query(F.data == "admin_panel")
 async def open_admin_panel(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return
     data = load_data()
     admin_text = f"📊 **Bot Statistikasi**\n\n👥 Jami foydalanuvchilar: `{len(data['users'])}` ta\n🚫 Bloklanganlar: `{len(data['banned'])}` ta"
     builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="📢 Rassilka", callback_data="admin_broadcast"), types.InlineKeyboardButton(text="🚫 Ban / Unban", callback_data="admin_ban"))
+    builder.row(types.InlineKeyboardButton(text="📢 Xabar yuborish (Rassilka)", callback_data="admin_broadcast"), types.InlineKeyboardButton(text="🚫 Ban / Unban", callback_data="admin_ban"))
     builder.row(types.InlineKeyboardButton(text="📂 Bazani yuklash", callback_data="admin_get_db"))
     await callback.message.edit_text(admin_text, parse_mode="Markdown", reply_markup=builder.as_markup())
 
@@ -153,17 +153,43 @@ async def admin_get_db(callback: types.CallbackQuery):
 async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID: return
     await state.set_state(AdminStates.waiting_for_broadcast)
-    await callback.message.edit_text("📢 Rassilka xabarini yuboring:")
+    await callback.message.edit_text("📢 Rassilka xabarini (matn, rasm yoki video) yuboring:")
 
+# --- MUTLAQ TO'G'RILANGAN RASSILKA TIZIMI ---
 @dp.message(AdminStates.waiting_for_broadcast)
 async def do_broadcast(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
     await state.clear()
-    data = load_data(); users = list(data["users"].keys())
+    
+    data = load_data()
+    users = list(data["users"].keys())
+    
+    status_msg = await message.answer(f"⏳ Xabar `{len(users)}` ta foydalanuvchiga yuborilmoqda...")
+    
+    success_count = 0
+    fail_count = 0
+    
     for u in users:
-        try: await bot.copy_message(chat_id=int(u), from_chat_id=message.chat.id, message_id=message.message_id)
-        except: pass
-    await message.answer("✅ Rassilka yakunlandi!")
+        try:
+            # ID larni integer (son) ko'rinishida yuborish majburiy
+            await bot.copy_message(
+                chat_id=int(u), 
+                from_chat_id=message.chat.id, 
+                message_id=message.message_id
+            )
+            success_count += 1
+            # Telegram bloklamasligi uchun qisqa uzilish
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            fail_count += 1
+            pass
+            
+    await status_msg.edit_text(
+        f"✅ **Rassilka yakunlandi!**\n\n"
+        f"🚀 Muvaffaqiyatli: `{success_count}` ta\n"
+        f"❌ Yuborilmadi (Botni bloklaganlar): `{fail_count}` ta",
+        parse_mode="Markdown"
+    )
 
 @dp.callback_query(F.data == "admin_ban")
 async def start_ban(callback: types.CallbackQuery, state: FSMContext):
@@ -216,139 +242,46 @@ async def handle_messages(message: types.Message):
     if not platform: return
 
     data["users"][user_id]["last_url"] = url; save_data(data)
-    bot_info = await bot.get_me()
 
-    builder = InlineKeyboardBuilder()
-    builder.row(types.InlineKeyboardButton(text="💾 Saqlash", callback_data=f"dl_video|{platform}"))
-    builder.row(types.InlineKeyboardButton(text="📩 Qo'shiqni yuklab olish", callback_data=f"shazam_search|{platform}"))
-    builder.row(types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"))
-    
-    await message.answer(LANGUAGES[lang]["choose_format"], reply_markup=builder.as_markup())
+    if platform == "youtube":
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            types.InlineKeyboardButton(text="🎬 720p Video", callback_data="yt_dl|720"),
+            types.InlineKeyboardButton(text="📺 360p Video", callback_data="yt_dl|360")
+        )
+        await message.answer(LANGUAGES[lang]["choose_format"], reply_markup=builder.as_markup())
+    else:
+        status_msg = await message.answer(LANGUAGES[lang]["wait"])
+        ydl_format = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+        await process_video_download(status_msg, url, lang, ydl_format)
 
-# --- SHAZAM TIZIMI (QIDIRUV VA 1-5 TUGMAR) ---
-@dp.callback_query(F.data.startswith("shazam_search"))
+@dp.callback_query(F.data.startswith("yt_dl|"))
 @check_ban
-async def shazam_search_callback(callback: types.CallbackQuery):
+async def youtube_download_callback(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id); data = load_data(); lang = data["users"].get(user_id, {}).get("lang", "uz")
     url = data["users"].get(user_id, {}).get("last_url", "")
-    if not url: return await callback.answer("Havola topilmadi.")
+    if not url: return await callback.answer("Xatolik.")
 
-    await callback.message.edit_text("🔍 Videodagi original musiqa nomi aniqlanmoqda...")
-
-    ydl_opts = {'quiet': True, 'no_warnings': True}
-    if os.path.exists(COOKIES_FILE): ydl_opts['cookiefile'] = COOKIES_FILE
-
-    try:
-        loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=False))
-        
-        search_query = info.get('track') or info.get('title')
-        artist = info.get('artist') or ""
-        if artist and artist not in search_query:
-            search_query = f"{artist} - {search_query}"
-            
-        search_query = re.sub(r'[#@\-\n]', ' ', search_query).strip()
-
-        await callback.message.edit_text(f"🎵 Original nom: **{search_query}**\n🚀 YouTube'dan eng yaxshi talqinlar qidirilmoqda...")
-
-        search_opts = {'format': 'bestaudio/best', 'quiet': True, 'extract_flat': True}
-        search_results = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(search_opts).extract_info(f"ytsearch5:{search_query}", download=False))
-        
-        entries = search_results.get('entries', [])
-        if not entries:
-            return await callback.message.edit_text("❌ Afsuski, original musiqa variantlari topilmadi.")
-
-        response_text = f"🎵 **{search_query}** uchun topilgan original musiqalar:\n\n"
-        builder = InlineKeyboardBuilder()
-        buttons = []
-
-        for idx, entry in enumerate(entries):
-            title = entry.get('title', 'Noma\'lum musiqa')
-            duration = entry.get('duration')
-            duration_str = f" {int(duration//60)}:{int(duration%60):02d}" if duration else ""
-            
-            response_text += f"{idx+1}. {title}**{duration_str}**\n"
-            buttons.append(types.InlineKeyboardButton(text=str(idx+1), callback_data=f"szdl|{entry.get('id')}"))
-
-        bot_info = await bot.get_me()
-        builder.row(*buttons)
-        builder.row(types.InlineKeyboardButton(text="🎬 Video formatda saqlash", callback_data="dl_video|youtube"))
-        builder.row(types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"))
-
-        data["users"][user_id]["shazam_results"] = {e.get('id'): e.get('title') for e in entries}
-        save_data(data)
-
-        await callback.message.edit_text(response_text, reply_markup=builder.as_markup(), parse_mode="Markdown")
-
-    except Exception as e:
-        print(f"Shazam error: {e}")
-        await callback.message.edit_text("❌ Musiqani aniqlashda xatolik yuz berdi.")
-
-# --- TUZATILGAN AUDIO YUKLASH TIZIMI ---
-@dp.callback_query(F.data.startswith("szdl"))
-@check_ban
-async def download_shazam_audio(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id); data = load_data(); lang = data["users"].get(user_id, {}).get("lang", "uz")
-    video_id = callback.data.split("|")[1]
-    audio_title = data["users"].get(user_id, {}).get("shazam_results", {}).get(video_id, "Original Audio")
+    quality = callback.data.split("|")[1]
+    ydl_format = f'bestvideo[height<={quality}][ext=mp4]+bestaudio[ext=m4a]/best[height<={quality}]/best'
     
-    await callback.message.edit_text(f"⏳ **{audio_title}** yuklab olinmoqda...")
-    audio_url = f"https://www.youtube.com/watch?v={video_id}"
+    await callback.message.edit_text(LANGUAGES[lang]["wait"])
+    await process_video_download(callback.message, url, lang, ydl_format)
+
+async def process_video_download(msg_to_edit, url, lang, ydl_format):
+    bot_info = await bot.get_me()
     
-    # FFMPEG'siz ham muammosiz yuklashi uchun formatni 'bestaudio' qildik va postprocessor olib tashlandi
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"),
+        types.InlineKeyboardButton(text="🚀 Ulashish", url=f"https://t.me/share/url?url=https://t.me/{bot_info.username}?start=share")
+    )
+
     ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': os.path.join(DOWNLOAD_DIR, f'{video_id}.%(ext)s'),
+        'format': ydl_format,
+        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True
-    }
-    
-    try:
-        loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(audio_url, download=True))
-        
-        # Yuklangan fayl formatini tekshirish (m4a, webm, ogg bo'lishi mumkin)
-        ext = info.get('ext', 'm4a')
-        filename = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
-        
-        if not os.path.exists(filename):
-            for potential_ext in ['m4a', 'webm', 'mp3', 'ogg']:
-                test_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{potential_ext}")
-                if os.path.exists(test_path):
-                    filename = test_path
-                    break
-
-        if os.path.exists(filename):
-            file_input = types.FSInputFile(filename)
-            await bot.send_audio(
-                chat_id=callback.message.chat.id,
-                audio=file_input,
-                caption=f"🎵 **{audio_title}**\n\n⚡️ @tezzzsaverbot orqali yuklab olindi!",
-                title=audio_title,
-                performer="Tezzz Saver Shazam"
-            )
-            await callback.message.delete()
-            os.remove(filename)
-        else:
-            await callback.message.edit_text("❌ Faylni yuklashda xatolik. Sarlavha juda uzun bo'lishi mumkin.")
-    except Exception as e:
-        print(f"Audio download error: {e}")
-        await callback.message.edit_text("❌ Original musiqani yuklashda muammo bo'ldi. Render cheklovi.")
-
-# --- VIDEONI ODDIY YUKLASH ---
-@dp.callback_query(F.data.startswith("dl_video"))
-@check_ban
-async def download_video_format(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id); data = load_data()
-    url = data["users"].get(user_id, {}).get("last_url", "")
-    if not url: return await callback.answer("Xato.")
-
-    await callback.message.edit_text("⏳ Video yuklanmoqda...")
-    
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
-        'quiet': True
     }
     if os.path.exists(COOKIES_FILE): ydl_opts['cookiefile'] = COOKIES_FILE
 
@@ -359,18 +292,28 @@ async def download_video_format(callback: types.CallbackQuery):
         
         base = os.path.splitext(filename)[0]
         for ext in ['mp4', 'mkv', 'webm', 'mov']:
-            if os.path.exists(f"{base}.{ext}"): filename = f"{base}.{ext}"; break
+            if os.path.exists(f"{base}.{ext}"): 
+                filename = f"{base}.{ext}"
+                break
 
         if os.path.exists(filename):
-            await bot.send_video(chat_id=callback.message.chat.id, video=types.FSInputFile(filename), caption="⚡️ @tezzzsaverbot orqali yuklab olindi!")
-            await callback.message.delete()
+            file_input = types.FSInputFile(filename)
+            await bot.send_video(
+                chat_id=msg_to_edit.chat.id, 
+                video=file_input, 
+                caption=LANGUAGES[lang]["success"],
+                reply_markup=builder.as_markup()
+            )
+            await msg_to_edit.delete()
             os.remove(filename)
+        else:
+            await msg_to_edit.edit_text(LANGUAGES[lang]["fail"])
     except Exception as e:
-        print(e)
-        await callback.message.edit_text("❌ Videoni yuklab bo'lmadi.")
+        print(f"Download Error: {e}")
+        await msg_to_edit.edit_text(LANGUAGES[lang]["fail"])
 
 # --- WEB SERVER ---
-async def handle_root(request): return web.Response(text="Bot is perfectly running!")
+async def handle_root(request): return web.Response(text="Bot is running completely fixed!")
 async def start_web_server():
     app = web.Application(); app.router.add_get('/', handle_root)
     runner = web.AppRunner(app); await runner.setup()
