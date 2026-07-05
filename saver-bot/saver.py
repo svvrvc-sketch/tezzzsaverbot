@@ -14,8 +14,8 @@ from aiogram.types import InlineQueryResultArticle, InputTextMessageContent
 from aiohttp import web
 
 # Bot sozlamalari
-API_TOKEN = '8747746960:AAFPVkSq4o5gfbayRU1bO0Q_rXGGoY5hMJY'
-ADMIN_ID = 6365261561  # Telegram ID raqamingiz
+API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
+ADMIN_ID = 5111794979  # Telegram ID raqamingiz
 
 # --- SOZLAMALAR ---
 USE_PREMIUM_SYSTEM = False   
