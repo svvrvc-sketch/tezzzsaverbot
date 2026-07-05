@@ -10,7 +10,6 @@ from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineQueryResultArticle, InputTextMessageContent
 from aiohttp import web
 
 # --- BOT SOZLAMALARI ---
@@ -51,13 +50,31 @@ def init_user_data(data, user_id):
 
 LANGUAGES = {
     "uz": {
-        "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan havola yuboring, yuklab beraman! 🚀",
+        "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan (Instagram, TikTok, YouTube) havola yuboring, yuklab beraman! 🚀",
         "wait": "⏳ Musiqa qidirilmoqda va tahlil qilinmoqda (Shazam)...",
         "choose_format": "🎬 Havola aniqlandi! Tanlang:",
         "success": "⚡️ @tezzzsaverbot orqali yuklab olindi!",
-        "fail": "❌ Xatolik yuz berdi.",
+        "fail": "❌ Xatolik yuz berdi. Yuklab bo'lmadi.",
         "sub_required": "⚠️ **Botdan foydalanish uchun kanalimizga a'zo bo'lishingiz shart!**",
         "check_sub_btn": "✅ A'zo bo'ldim / Tekshirish"
+    },
+    "ru": {
+        "start": "⚡️ **Добро пожаловать!**\nОтправьте мне ссылку, и я скачаю её! 🚀",
+        "wait": "⏳ Поиск и анализ музыки (Shazam)...",
+        "choose_format": "🎬 Ссылка обнаружена! Выберите:",
+        "success": "⚡️ Скачано с помощью @tezzzsaverbot!",
+        "fail": "❌ Произошла ошибка при скачивании.",
+        "sub_required": "⚠️ **Для использования бота вы должны подписаться на канал!**",
+        "check_sub_btn": "✅ Я подписался"
+    },
+    "en": {
+        "start": "⚡️ **Welcome!**\nSend me a link, and I will download it! 🚀",
+        "wait": "⏳ Searching and analyzing music (Shazam)...",
+        "choose_format": "🎬 Link detected! Choose:",
+        "success": "⚡️ Downloaded via @tezzzsaverbot!",
+        "fail": "❌ Error occurred during download.",
+        "sub_required": "⚠️ **To use the bot, you must subscribe to our channel!**",
+        "check_sub_btn": "✅ I subscribed"
     }
 }
 
@@ -68,7 +85,21 @@ async def is_subscribed(user_id):
         return member.status in ["member", "administrator", "creator"]
     except: return True
 
+def check_ban(func):
+    async def wrapper(message_or_call, *args, **kwargs):
+        user_id = str(message_or_call.from_user.id)
+        data = load_data()
+        if user_id in data.get("banned", []):
+            if isinstance(message_or_call, types.Message):
+                await message_or_call.answer("🚫 Botdan foydalanish huquqingiz cheklangan.")
+            return
+        sig = inspect.signature(func)
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+        return await func(message_or_call, *args, **filtered_kwargs)
+    return wrapper
+
 @dp.message(CommandStart())
+@check_ban
 async def cmd_start(message: types.Message):
     user_id = str(message.from_user.id)
     data = load_data(); data = init_user_data(data, user_id); save_data(data)
@@ -78,20 +109,102 @@ async def cmd_start(message: types.Message):
         sub_builder.row(types.InlineKeyboardButton(text="📢 Kanalga o'tish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@','') }"))
         sub_builder.row(types.InlineKeyboardButton(text=LANGUAGES["uz"]["check_sub_btn"], callback_data="check_subscription"))
         await message.answer(LANGUAGES["uz"]["sub_required"], reply_markup=sub_builder.as_markup(), parse_mode="Markdown")
-    else:
-        await message.answer(LANGUAGES["uz"]["start"], parse_mode="Markdown")
+        return
 
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang_uz"),
+        types.InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru"),
+        types.InlineKeyboardButton(text="🇺🇸 English", callback_data="lang_en")
+    )
+    if message.from_user.id == ADMIN_ID:
+        builder.row(types.InlineKeyboardButton(text="⚙️ Admin Panel", callback_data="admin_panel"))
+        
+    await message.answer("🌐 Tilni tanlang / Choose language / Выберите язык:", reply_markup=builder.as_markup())
+
+# --- TILNI O'ZGARTIRISH HENDLERI ---
+@dp.callback_query(F.data.startswith("lang_"))
+@check_ban
+async def set_language(callback: types.CallbackQuery):
+    lang = callback.data.split("_")[1]; user_id = str(callback.from_user.id)
+    data = load_data(); data = init_user_data(data, user_id)
+    data["users"][user_id]["lang"] = lang; save_data(data)
+    await callback.message.edit_text(LANGUAGES[lang]["start"], parse_mode="Markdown")
+
+# --- ADMIN PANEL HENDLERLARI ---
+@dp.callback_query(F.data == "admin_panel")
+async def open_admin_panel(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return
+    data = load_data()
+    admin_text = f"📊 **Bot Statistikasi**\n\n👥 Jami foydalanuvchilar: `{len(data['users'])}` ta\n🚫 Bloklanganlar: `{len(data['banned'])}` ta"
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="📢 Rassilka", callback_data="admin_broadcast"), types.InlineKeyboardButton(text="🚫 Ban / Unban", callback_data="admin_ban"))
+    builder.row(types.InlineKeyboardButton(text="📂 Bazani yuklash", callback_data="admin_get_db"))
+    await callback.message.edit_text(admin_text, parse_mode="Markdown", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data == "admin_get_db")
+async def admin_get_db(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return
+    if os.path.exists(DATA_FILE):
+        await bot.send_document(chat_id=callback.from_user.id, document=types.FSInputFile(DATA_FILE), caption="📂 Bot bazasi.")
+    else: await callback.answer("Baza topilmadi.")
+
+@dp.callback_query(F.data == "admin_broadcast")
+async def start_broadcast(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID: return
+    await state.set_state(AdminStates.waiting_for_broadcast)
+    await callback.message.edit_text("📢 Rassilka xabarini yuboring:")
+
+@dp.message(AdminStates.waiting_for_broadcast)
+async def do_broadcast(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID: return
+    await state.clear()
+    data = load_data(); users = list(data["users"].keys())
+    for u in users:
+        try: await bot.copy_message(chat_id=int(u), from_chat_id=message.chat.id, message_id=message.message_id)
+        except: pass
+    await message.answer("✅ Rassilka yakunlandi!")
+
+@dp.callback_query(F.data == "admin_ban")
+async def start_ban(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID: return
+    await state.set_state(AdminStates.waiting_for_ban_id)
+    await callback.message.edit_text("🚫 Bloklamoqchi bo'lgan ID raqamni yuboring:")
+
+@dp.message(AdminStates.waiting_for_ban_id)
+async def do_ban(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID: return
+    await state.clear()
+    target_id = message.text.strip()
+    data = load_data()
+    if target_id in data["banned"]:
+        data["banned"].remove(target_id); msg = "Blokdan chiqdi."
+    else:
+        data["banned"].append(target_id); msg = "Bloklandi."
+    save_data(data)
+    await message.answer(msg)
+
+@dp.callback_query(F.data == "check_subscription")
+async def check_sub(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    if await is_subscribed(user_id):
+        await callback.message.delete()
+        await callback.message.answer("🎉 Rahmat! Havola yuborishingiz mumkin.")
+    else: await callback.answer("⚠️ Kanalga a'zo bo'ling!", show_alert=True)
+
+# --- HAVOLALARNI QABUL QILISH TIZIMI ---
 @dp.message(F.text)
+@check_ban
 async def handle_messages(message: types.Message):
-    user_id = str(message.from_user.id); data = load_data(); data = init_user_data(data, user_id)
+    user_id = str(message.from_user.id); data = load_data(); data = init_user_data(data, user_id); lang = data["users"][user_id].get("lang", "uz")
     urls = re.findall(r'(https?://[^\s]+)', message.text)
     if not urls: return
 
     if not await is_subscribed(user_id):
         sub_builder = InlineKeyboardBuilder()
         sub_builder.row(types.InlineKeyboardButton(text="📢 Kanalga o'tish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@','') }"))
-        sub_builder.row(types.InlineKeyboardButton(text=LANGUAGES["uz"]["check_sub_btn"], callback_data="check_subscription"))
-        return await message.answer(LANGUAGES["uz"]["sub_required"], reply_markup=sub_builder.as_markup())
+        sub_builder.row(types.InlineKeyboardButton(text=LANGUAGES[lang]["check_sub_btn"], callback_data="check_subscription"))
+        return await message.answer(LANGUAGES[lang]["sub_required"], reply_markup=sub_builder.as_markup())
 
     url = urls[0]
     platform = None
@@ -103,8 +216,6 @@ async def handle_messages(message: types.Message):
     if not platform: return
 
     data["users"][user_id]["last_url"] = url; save_data(data)
-
-    # Bot obunasini olish
     bot_info = await bot.get_me()
 
     builder = InlineKeyboardBuilder()
@@ -112,12 +223,13 @@ async def handle_messages(message: types.Message):
     builder.row(types.InlineKeyboardButton(text="📩 Qo'shiqni yuklab olish", callback_data=f"shazam_search|{platform}"))
     builder.row(types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"))
     
-    await message.answer(LANGUAGES["uz"]["choose_format"], reply_markup=builder.as_markup())
+    await message.answer(LANGUAGES[lang]["choose_format"], reply_markup=builder.as_markup())
 
-# --- SHAZAM TIZIMI (QIDIRUV VA 1-5 TUGMALAR) ---
+# --- SHAZAM TIZIMI (QIDIRUV VA 1-5 TUGMAR) ---
 @dp.callback_query(F.data.startswith("shazam_search"))
+@check_ban
 async def shazam_search_callback(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id); data = load_data()
+    user_id = str(callback.from_user.id); data = load_data(); lang = data["users"].get(user_id, {}).get("lang", "uz")
     url = data["users"].get(user_id, {}).get("last_url", "")
     if not url: return await callback.answer("Havola topilmadi.")
 
@@ -159,7 +271,6 @@ async def shazam_search_callback(callback: types.CallbackQuery):
             buttons.append(types.InlineKeyboardButton(text=str(idx+1), callback_data=f"szdl|{entry.get('id')}"))
 
         bot_info = await bot.get_me()
-
         builder.row(*buttons)
         builder.row(types.InlineKeyboardButton(text="🎬 Video formatda saqlash", callback_data="dl_video|youtube"))
         builder.row(types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"))
@@ -173,30 +284,40 @@ async def shazam_search_callback(callback: types.CallbackQuery):
         print(f"Shazam error: {e}")
         await callback.message.edit_text("❌ Musiqani aniqlashda xatolik yuz berdi.")
 
-# --- INLINE 1-5 TUGMALAR BOSILGANDA YUKLASH ---
+# --- TUZATILGAN AUDIO YUKLASH TIZIMI ---
 @dp.callback_query(F.data.startswith("szdl"))
+@check_ban
 async def download_shazam_audio(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id); data = load_data()
+    user_id = str(callback.from_user.id); data = load_data(); lang = data["users"].get(user_id, {}).get("lang", "uz")
     video_id = callback.data.split("|")[1]
     audio_title = data["users"].get(user_id, {}).get("shazam_results", {}).get(video_id, "Original Audio")
     
     await callback.message.edit_text(f"⏳ **{audio_title}** yuklab olinmoqda...")
-    
     audio_url = f"https://www.youtube.com/watch?v={video_id}"
     
+    # FFMPEG'siz ham muammosiz yuklashi uchun formatni 'bestaudio' qildik va postprocessor olib tashlandi
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
+        'outtmpl': os.path.join(DOWNLOAD_DIR, f'{video_id}.%(ext)s'),
         'quiet': True,
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}]
+        'no_warnings': True
     }
     
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).download([audio_url]))
+        info = await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).extract_info(audio_url, download=True))
         
-        filename = os.path.join(DOWNLOAD_DIR, f"{video_id}.mp3")
+        # Yuklangan fayl formatini tekshirish (m4a, webm, ogg bo'lishi mumkin)
+        ext = info.get('ext', 'm4a')
+        filename = os.path.join(DOWNLOAD_DIR, f"{video_id}.{ext}")
         
+        if not os.path.exists(filename):
+            for potential_ext in ['m4a', 'webm', 'mp3', 'ogg']:
+                test_path = os.path.join(DOWNLOAD_DIR, f"{video_id}.{potential_ext}")
+                if os.path.exists(test_path):
+                    filename = test_path
+                    break
+
         if os.path.exists(filename):
             file_input = types.FSInputFile(filename)
             await bot.send_audio(
@@ -204,18 +325,19 @@ async def download_shazam_audio(callback: types.CallbackQuery):
                 audio=file_input,
                 caption=f"🎵 **{audio_title}**\n\n⚡️ @tezzzsaverbot orqali yuklab olindi!",
                 title=audio_title,
-                performer="Shazam Original Finder"
+                performer="Tezzz Saver Shazam"
             )
             await callback.message.delete()
             os.remove(filename)
         else:
-            await callback.message.edit_text("❌ Fayl yuklashda xatolik yuz berdi. Qaytadan urinib ko'ring.")
+            await callback.message.edit_text("❌ Faylni yuklashda xatolik. Sarlavha juda uzun bo'lishi mumkin.")
     except Exception as e:
-        print(e)
-        await callback.message.edit_text("❌ Original musiqani yuklashda xatolik yuz berdi.")
+        print(f"Audio download error: {e}")
+        await callback.message.edit_text("❌ Original musiqani yuklashda muammo bo'ldi. Render cheklovi.")
 
 # --- VIDEONI ODDIY YUKLASH ---
 @dp.callback_query(F.data.startswith("dl_video"))
+@check_ban
 async def download_video_format(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id); data = load_data()
     url = data["users"].get(user_id, {}).get("last_url", "")
@@ -224,7 +346,7 @@ async def download_video_format(callback: types.CallbackQuery):
     await callback.message.edit_text("⏳ Video yuklanmoqda...")
     
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best',
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
         'quiet': True
     }
@@ -248,7 +370,7 @@ async def download_video_format(callback: types.CallbackQuery):
         await callback.message.edit_text("❌ Videoni yuklab bo'lmadi.")
 
 # --- WEB SERVER ---
-async def handle_root(request): return web.Response(text="Bot runs!")
+async def handle_root(request): return web.Response(text="Bot is perfectly running!")
 async def start_web_server():
     app = web.Application(); app.router.add_get('/', handle_root)
     runner = web.AppRunner(app); await runner.setup()
