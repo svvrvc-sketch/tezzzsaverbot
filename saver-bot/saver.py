@@ -9,8 +9,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineQueryResultArticle, InputTextMessageContent
 
 # Bot sozlamalari
+# ⚠️ DIQQAT: O'zingizning @BotFather dan olgan asl tokeningizni shu yerga yozing!
 API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
-ADMIN_ID = 5111794979  # O'zingizning Telegram ID raqamingiz
+ADMIN_ID = 6365261561  # O'zingizning Telegram ID raqamingiz
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
@@ -64,6 +65,7 @@ LANGUAGES = {
     }
 }
 
+# Tuzatilgan xavfsiz dekorator funksiyasi
 def check_ban(func):
     async def wrapper(message_or_call, *args, **kwargs):
         user_id = str(message_or_call.from_user.id)
@@ -72,7 +74,8 @@ def check_ban(func):
             if isinstance(message_or_call, types.Message):
                 await message_or_call.answer("🚫 Access Denied / Bloklangansiz")
             return
-        return await func(message_or_call, *args, **kwargs)
+        # Handlerga faqat u kutayotgan argumentni yuboramiz (xatolik kelib chiqmasligi uchun)
+        return await func(message_or_call)
     return wrapper
 
 @dp.message(CommandStart())
@@ -101,6 +104,9 @@ async def set_language(callback: types.CallbackQuery):
     lang = callback.data.split("_")[1]
     user_id = str(callback.from_user.id)
     data = load_data()
+    
+    if user_id not in data["users"]:
+        data["users"][user_id] = {}
     data["users"][user_id]["lang"] = lang
     save_data(data)
     await callback.message.edit_text(LANGUAGES[lang]["start"], parse_mode="Markdown")
@@ -210,21 +216,19 @@ async def format_callback(callback: types.CallbackQuery):
     await process_download(callback.message, url, lang, ydl_format, is_audio=(fmt=="yt_mp3"))
 
 async def process_download(msg, url, lang, ydl_format, is_audio=False):
-    # Server blokirovkalarini aylanib o'tish uchun maxsus yuklagich sozlamalari
     ydl_opts = {
         'format': ydl_format,
         'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
         'no_warnings': True,
         'quiet': True,
-        # Quyidagi qatorlar Instagram va YouTube bloklarini chetlab o'tishga yordam beradi:
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
         },
-        'geo_bypass': True,  # Geografik cheklovlarni chetlab o'tish
+        'geo_bypass': True,
         'extractor_args': {
-            'youtube': {'player_client': ['android', 'web']} # YouTube bot-tizimini aldash
+            'youtube': {'player_client': ['android', 'web']}
         }
     }
     
@@ -257,7 +261,7 @@ async def process_download(msg, url, lang, ydl_format, is_audio=False):
         await msg.delete()
         if os.path.exists(filename): os.remove(filename)
     except Exception as e:
-        print(f"Xatolik tafsiloti: {e}")
+        print(f"Xatolik: {e}")
         await msg.edit_text(LANGUAGES[lang]["fail"])
 
 @dp.inline_query()
