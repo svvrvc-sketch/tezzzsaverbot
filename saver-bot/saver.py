@@ -21,7 +21,6 @@ DATA_FILE = "users.json"
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# Ma'lumotlar bazasini yuklash va saqlash
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {"users": {}, "banned": []}
@@ -35,7 +34,6 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# Tillarga oid matnlar paketi
 LANGUAGES = {
     "uz": {
         "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan (Instagram, TikTok, YouTube, Pinterest) havola yuboring, men uni bir zumda yuklab beraman! 🚀\n\n*Meni guruhlarga qo'shsangiz, guruhdagi havolalarni ham avtomatik yuklab beraman!* 🔥",
@@ -43,7 +41,7 @@ LANGUAGES = {
         "wait": "⏳ Video tahlil qilinmoqda...",
         "yt_choose": "🎬 YouTube videosi aniqlandi! Yuklab olish formatini tanlang:",
         "success": "⚡️ @tezzzsaverbot orqali yuklab olindi!",
-        "fail": "❌ Yuklashda xatolik yuz berdi. Havola yopiq yoki noto'g'ri bo'lishi mumkin.",
+        "fail": "❌ Yuklashda xatolik yuz berdi. Havola yopiq, yosh cheklovi mavjud yoki bot bloklangan bo‘lishi mumkin.",
         "banned_msg": "🚫 Siz botdan foydalanishdan bloklangansiz!"
     },
     "ru": {
@@ -52,7 +50,7 @@ LANGUAGES = {
         "wait": "⏳ Видео анализируется...",
         "yt_choose": "🎬 Обнаружено видео с YouTube! Выберите формат для скачивания:",
         "success": "⚡️ Скачано с помощью @tezzzsaverbot!",
-        "fail": "❌ Произошла ошибка при скачивании. Возможно, ссылка приватная или неверная.",
+        "fail": "❌ Произошла ошибка при скачивании. Возможно, ссылка приватная или заблокирована.",
         "banned_msg": "🚫 Вы заблокированы в этом боте!"
     },
     "en": {
@@ -61,12 +59,11 @@ LANGUAGES = {
         "wait": "⏳ Analyzing video...",
         "yt_choose": "🎬 YouTube video detected! Choose download format:",
         "success": "⚡️ Downloaded via @tezzzsaverbot!",
-        "fail": "❌ Error occurred during download. The link might be private or invalid.",
+        "fail": "❌ Error occurred during download. The link might be private or restricted.",
         "banned_msg": "🚫 You are banned from using this bot!"
     }
 }
 
-# Bloklanganlikni tekshirish
 def check_ban(func):
     async def wrapper(message_or_call, *args, **kwargs):
         user_id = str(message_or_call.from_user.id)
@@ -78,7 +75,6 @@ def check_ban(func):
         return await func(message_or_call, *args, **kwargs)
     return wrapper
 
-# 1. Til Tanlash va Start buyrug'i
 @dp.message(CommandStart())
 @check_ban
 async def cmd_start(message: types.Message):
@@ -105,15 +101,10 @@ async def set_language(callback: types.CallbackQuery):
     lang = callback.data.split("_")[1]
     user_id = str(callback.from_user.id)
     data = load_data()
-    
-    if user_id not in data["users"]:
-        data["users"][user_id] = {}
     data["users"][user_id]["lang"] = lang
     save_data(data)
-    
     await callback.message.edit_text(LANGUAGES[lang]["start"], parse_mode="Markdown")
 
-# 2. Admin Panel (Ban/Unban va Rassilka)
 @dp.callback_query(F.data == "admin_panel")
 async def open_admin_panel(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return
@@ -166,36 +157,27 @@ async def unban_user(message: types.Message):
         save_data(data)
         await message.answer(f"🔓 Foydalanuvchi {uid} blokdan ochildi.")
 
-# 3. Guruhlar va Shaxsiy chatlarda Havolalarni Avtomatik aniqlash va Yuklash
 @dp.message(F.text)
 @check_ban
 async def handle_messages(message: types.Message):
     user_id = str(message.from_user.id)
     data = load_data()
     
-    # Bazaga qo'shib qo'yish (guruh a'zolarini ham)
     if user_id not in data["users"]:
         data["users"][user_id] = {"lang": "uz", "platform": "group_user" if message.chat.type != "private" else "private"}
         save_data(data)
         
     lang = data["users"].get(user_id, {}).get("lang", "uz")
-    
-    # Matn ichidan linklarni qidirish (guruhda odamlar gap orasida link tashlashi mumkin)
     urls = re.findall(r'(https?://[^\s]+)', message.text)
-    if not urls:
-        return
+    if not urls: return
 
-    url = urls[0] # Birinchi topilgan havolani olamiz
-    
+    url = urls[0]
     allowed = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be", "pinterest.com", "pin.it"]
     if not any(d in url for d in allowed):
-        # Guruhlarda xalaqit bermaslik uchun faqat shaxsiy chatda xatolik matnini chiqaramiz
         if message.chat.type == "private":
             await message.answer(LANGUAGES[lang]["error_domain"])
         return
         
-    # Agarda YouTube bo'lsa va bu shaxsiy chat bo'lsa sifat tanlashni chiqaramiz. 
-    # Guruhlarda esa sifat so'ramay, avtomatik o'rta sifatda (360p/best) darhol yuklab beradi (guruh interfeysini buzmaslik uchun)
     if ("youtube.com" in url or "youtu.be" in url) and message.chat.type == "private":
         builder = InlineKeyboardBuilder()
         builder.row(
@@ -207,7 +189,6 @@ async def handle_messages(message: types.Message):
         save_data(data)
         await message.answer(LANGUAGES[lang]["yt_choose"], reply_markup=builder.as_markup())
     else:
-        # Guruhlar yoki boshqa tarmoqlar uchun to'g'ridan-to'g'ri yuklash
         status_msg = await message.reply(LANGUAGES[lang]["wait"])
         await process_download(status_msg, url, lang, 'bestvideo[height<=480]+bestaudio/best' if "youtube" in url else 'bestvideo+bestaudio/best')
 
@@ -229,12 +210,24 @@ async def format_callback(callback: types.CallbackQuery):
     await process_download(callback.message, url, lang, ydl_format, is_audio=(fmt=="yt_mp3"))
 
 async def process_download(msg, url, lang, ydl_format, is_audio=False):
+    # Server blokirovkalarini aylanib o'tish uchun maxsus yuklagich sozlamalari
     ydl_opts = {
         'format': ydl_format,
         'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
         'no_warnings': True,
-        'quiet': True
+        'quiet': True,
+        # Quyidagi qatorlar Instagram va YouTube bloklarini chetlab o'tishga yordam beradi:
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        },
+        'geo_bypass': True,  # Geografik cheklovlarni chetlab o'tish
+        'extractor_args': {
+            'youtube': {'player_client': ['android', 'web']} # YouTube bot-tizimini aldash
+        }
     }
+    
     if is_audio:
         ydl_opts['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
@@ -256,7 +249,6 @@ async def process_download(msg, url, lang, ydl_format, is_audio=False):
 
         file_input = types.FSInputFile(filename)
         
-        # Guruhda yoki shaxsiy chatda javob qaytarish tizimi
         if is_audio:
             await bot.send_audio(chat_id=msg.chat.id, audio=file_input, caption=LANGUAGES[lang]["success"])
         else:
@@ -264,10 +256,10 @@ async def process_download(msg, url, lang, ydl_format, is_audio=False):
             
         await msg.delete()
         if os.path.exists(filename): os.remove(filename)
-    except:
+    except Exception as e:
+        print(f"Xatolik tafsiloti: {e}")
         await msg.edit_text(LANGUAGES[lang]["fail"])
 
-# 4. Inline Rejim
 @dp.inline_query()
 async def inline_download(inline_query: types.InlineQuery):
     url = inline_query.query.strip()
