@@ -18,14 +18,7 @@ if not os.path.exists(DOWNLOAD_DIR):
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     start_text = (
-        "Assalomu alaykum va xush kelibsiz! 👋\n\n"
-        "Men sizga ijtimoiy tarmoqlardan videolarni yuklab berishda yordam beraman. 🎬\n\n"
-        "✨ **Men qaysi tarmoqlardan yuklay olaman?**\n"
-        "• Instagram Reels & Post 📸\n"
-        "• YouTube Shorts & Video 🎥\n"
-        "• TikTok (Suv belgisiz) 🎵\n"
-        "• Pinterest Video 📌\n\n"
-        "🚀 Menga shunchaki **video havolasini (linkini)** yuboring!"
+        "🚀Salom! Menga ijtimoiy tarmoqdan video havolasini yuboring, men uni sizga yuklab beraman."
     )
     await message.answer(start_text, parse_mode="Markdown")
 
