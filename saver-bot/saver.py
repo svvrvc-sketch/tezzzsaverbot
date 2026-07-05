@@ -11,15 +11,16 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineQueryResultArticle, InputTextMessageContent
+from aiohttp import web
 
 # Bot sozlamalari
-API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
-ADMIN_ID = 5111794979  # Telegram ID raqamingiz
+API_TOKEN = '8747746960:AAFPVkSq4o5gfbayRU1bO0Q_rXGGoY5hMJY'
+ADMIN_ID = 6365261561  # Telegram ID raqamingiz
 
 # --- SOZLAMALAR ---
 USE_PREMIUM_SYSTEM = False   
 USE_MANDATORY_SUB = True     
-REQUIRED_CHANNEL = "@svpains" 
+REQUIRED_CHANNEL = "@openwebacademy" 
 DAILY_FREE_LIMIT = 5        
 
 bot = Bot(token=API_TOKEN)
@@ -121,7 +122,6 @@ async def is_subscribed(user_id):
         print(f"Obunani tekshirishda xato: {e}")
         return True
 
-# MUTLAQ XAVFSIZ DEKORATOR: Ortiqcha argumentlarni dinamik ravishda o'chirib tashlaydi
 def check_ban(func):
     async def wrapper(message_or_call, *args, **kwargs):
         user_id = str(message_or_call.from_user.id)
@@ -131,7 +131,6 @@ def check_ban(func):
                 await message_or_call.answer("🚫 Botdan foydalanish huquqingiz cheklangan (Banned).")
             return
         
-        # Funksiya qabul qila oladigan argumentlarni aniqlaymiz va faqat o'shalarni uzatamiz
         sig = inspect.signature(func)
         filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
         return await func(message_or_call, *args, **filtered_kwargs)
@@ -356,7 +355,7 @@ async def format_callback(callback: types.CallbackQuery):
 
     await callback.message.edit_text(LANGUAGES[lang]["wait"])
     
-    success = await process_download(callback.message, url, lang, ydl_format, is_audio)
+    success = await process_download(callback.message, url, lang, ydl_format, is_audio, platform)
     
     if success:
         data = load_data()
@@ -365,7 +364,7 @@ async def format_callback(callback: types.CallbackQuery):
         data["users"][user_id]["stats"][platform] = data["users"][user_id]["stats"].get(platform, 0) + 1
         save_data(data)
 
-async def process_download(msg, url, lang, ydl_format, is_audio=False):
+async def process_download(msg, url, lang, ydl_format, is_audio=False, platform=None):
     ydl_opts = {
         'format': ydl_format,
         'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
@@ -389,6 +388,27 @@ async def process_download(msg, url, lang, ydl_format, is_audio=False):
 
     try:
         loop = asyncio.get_event_loop()
+        
+        # Metadata (Musiqa ma'lumotlarini) olish qismi
+        def extract_metadata():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                return info
+
+        info_dict = await loop.run_in_executor(None, extract_metadata)
+        
+        # Musiqa nomini aniqlash (track va artist metadata tizimidan qidiriladi)
+        music_title = info_dict.get('track') or info_dict.get('alt_title')
+        music_artist = info_dict.get('artist') or info_dict.get('creator')
+        
+        # Agar tizimda rasmiy qo'shiq nomi aniqlanmasa, video sarlavhasidan foydalanamiz
+        if music_title and music_artist:
+            music_caption = f"🎵 **Musiqa:** {music_artist} - {music_title}\n\n"
+        elif music_title:
+            music_caption = f"🎵 **Musiqa:** {music_title}\n\n"
+        else:
+            music_caption = f"🎵 **Musiqa:** {info_dict.get('title', 'Audio Track')}\n\n"
+            
         def download():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -403,10 +423,21 @@ async def process_download(msg, url, lang, ydl_format, is_audio=False):
                 if os.path.exists(f"{base}.{ext}"): filename = f"{base}.{ext}"; break
 
         file_input = types.FSInputFile(filename)
+        
         if is_audio:
-            await bot.send_audio(chat_id=msg.chat.id, audio=file_input, caption=LANGUAGES[lang]["success"])
+            caption_text = f"{music_caption}{LANGUAGES[lang]['success']}"
+            await bot.send_audio(
+                chat_id=msg.chat.id, 
+                audio=file_input, 
+                caption=caption_text, 
+                title=music_title or info_dict.get('title'),
+                performer=music_artist or "Tezzz Saver",
+                parse_mode="Markdown"
+            )
         else:
-            await bot.send_video(chat_id=msg.chat.id, video=file_input, caption=LANGUAGES[lang]["success"])
+            # Videoning o'zi yuborilganda ostida musiqa haqida ma'lumot yoziladi
+            caption_text = f"{music_caption}{LANGUAGES[lang]['success']}"
+            await bot.send_video(chat_id=msg.chat.id, video=file_input, caption=caption_text, parse_mode="Markdown")
             
         await msg.delete()
         if os.path.exists(filename): os.remove(filename)
@@ -437,7 +468,22 @@ async def inline_handler(inline_query: types.InlineQuery):
     ]
     await inline_query.answer(results, cache_time=1)
 
+# --- BEPUL VEB SERVER (RENDER PORTI UCHUN) ---
+async def handle_root(request):
+    return web.Response(text="Bot is running successfully!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_root)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Web server started on port {port}")
+
 async def main():
+    asyncio.create_task(start_web_server())
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
