@@ -3,6 +3,7 @@ import json
 import asyncio
 import yt_dlp
 import re
+import inspect
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -16,9 +17,9 @@ API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
 ADMIN_ID = 5111794979  # Telegram ID raqamingiz
 
 # --- SOZLAMALAR ---
-USE_PREMIUM_SYSTEM = False   # Premium + Limit tizimi o'chiq holatda
-USE_MANDATORY_SUB = True     # Majburiy obuna funksiyasi yoqilgan!
-REQUIRED_CHANNEL = "@openwebacademy" # Majburiy obuna kanali userneymi
+USE_PREMIUM_SYSTEM = False   
+USE_MANDATORY_SUB = True     
+REQUIRED_CHANNEL = "@svpains" 
 DAILY_FREE_LIMIT = 5        
 
 bot = Bot(token=API_TOKEN)
@@ -120,7 +121,7 @@ async def is_subscribed(user_id):
         print(f"Obunani tekshirishda xato: {e}")
         return True
 
-# Aiogram'dan keladigan ortiqcha dispatcher argumentlarini tozalovchi xavfsiz dekorator
+# MUTLAQ XAVFSIZ DEKORATOR: Ortiqcha argumentlarni dinamik ravishda o'chirib tashlaydi
 def check_ban(func):
     async def wrapper(message_or_call, *args, **kwargs):
         user_id = str(message_or_call.from_user.id)
@@ -130,9 +131,10 @@ def check_ban(func):
                 await message_or_call.answer("🚫 Botdan foydalanish huquqingiz cheklangan (Banned).")
             return
         
-        # Handler funksiyalariga faqat kerakli argumentlarni o'tkazamiz
-        cleaned_kwargs = {k: v for k, v in kwargs.items() if k != 'dispatcher'}
-        return await func(message_or_call, *args, **cleaned_kwargs)
+        # Funksiya qabul qila oladigan argumentlarni aniqlaymiz va faqat o'shalarni uzatamiz
+        sig = inspect.signature(func)
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+        return await func(message_or_call, *args, **filtered_kwargs)
     return wrapper
 
 @dp.message(CommandStart())
