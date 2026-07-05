@@ -9,7 +9,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineQueryResultArticle, InputTextMessageContent
 
 # Bot sozlamalari
-API_TOKEN = '8747746960:AAFPVkSq4o5gfbayRU1bO0Q_rXGGoY5hMJY'
+API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
 ADMIN_ID = 5111794979  # O'zingizning Telegram ID raqamingiz
 
 bot = Bot(token=API_TOKEN)
