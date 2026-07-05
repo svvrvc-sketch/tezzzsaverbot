@@ -17,8 +17,8 @@ ADMIN_ID = 5111794979  # Telegram ID raqamingiz
 
 # --- SOZLAMALAR ---
 USE_PREMIUM_SYSTEM = False   # Premium + Limit tizimi o'chiq holatda
-USE_MANDATORY_SUB = True     # Majburiy obuna funksiyasi yoqildi!
-REQUIRED_CHANNEL = "@svpains" # Majburiy obuna kanali userneymi
+USE_MANDATORY_SUB = True     # Majburiy obuna funksiyasi yoqilgan!
+REQUIRED_CHANNEL = "@openwebacademy" # Majburiy obuna kanali userneymi
 DAILY_FREE_LIMIT = 5        
 
 bot = Bot(token=API_TOKEN)
@@ -118,9 +118,9 @@ async def is_subscribed(user_id):
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
         print(f"Obunani tekshirishda xato: {e}")
-        # Agarda bot kanalda admin bo'lmasa, xatolik berib ishdan to'xtamasligi uchun True qaytaramiz
         return True
 
+# Aiogram'dan keladigan ortiqcha dispatcher argumentlarini tozalovchi xavfsiz dekorator
 def check_ban(func):
     async def wrapper(message_or_call, *args, **kwargs):
         user_id = str(message_or_call.from_user.id)
@@ -129,7 +129,10 @@ def check_ban(func):
             if isinstance(message_or_call, types.Message):
                 await message_or_call.answer("🚫 Botdan foydalanish huquqingiz cheklangan (Banned).")
             return
-        return await func(message_or_call, *args, **kwargs)
+        
+        # Handler funksiyalariga faqat kerakli argumentlarni o'tkazamiz
+        cleaned_kwargs = {k: v for k, v in kwargs.items() if k != 'dispatcher'}
+        return await func(message_or_call, *args, **cleaned_kwargs)
     return wrapper
 
 @dp.message(CommandStart())
@@ -149,7 +152,6 @@ async def cmd_start(message: types.Message):
     if message.from_user.id == ADMIN_ID:
         builder.row(types.InlineKeyboardButton(text="⚙️ Admin Panel", callback_data="admin_panel"))
         
-    # Start berganda ham kanal tekshiruvi
     if not await is_subscribed(user_id):
         sub_builder = InlineKeyboardBuilder()
         sub_builder.row(types.InlineKeyboardButton(text="📢 Kanalga o'tish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@','') }"))
@@ -289,11 +291,9 @@ async def handle_messages(message: types.Message):
     data = init_user_data(data, user_id)
     lang = data["users"][user_id]["lang"]
 
-    # Havola bor yoki yo'qligini tekshirish
     urls = re.findall(r'(https?://[^\s]+)', message.text)
     if not urls: return
 
-    # Majburiy obunani tekshirish
     if not await is_subscribed(user_id):
         builder = InlineKeyboardBuilder()
         builder.row(types.InlineKeyboardButton(text="📢 Kanalga o'tish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@','') }"))
@@ -334,7 +334,6 @@ async def format_callback(callback: types.CallbackQuery):
     url = data["users"].get(user_id, {}).get("last_url", "")
     if not url: return await callback.answer("Xatolik.")
 
-    # Yuklashdan oldin ham obunani tekshirish (Xavfsizlik)
     if not await is_subscribed(user_id):
         builder = InlineKeyboardBuilder()
         builder.row(types.InlineKeyboardButton(text="📢 Kanalga o'tish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@','') }"))
