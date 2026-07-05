@@ -1,66 +1,286 @@
 import os
+import json
 import asyncio
 import yt_dlp
+import re
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineQueryResultArticle, InputTextMessageContent
 
-# Bot tokeningizni shu yerga yozing
-API_TOKEN = '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY'
+# Bot sozlamalari
+API_TOKEN = '8747746960:AAFPVkSq4o5gfbayRU1bO0Q_rXGGoY5hMJY'
+ADMIN_ID = 5111794979  # O'zingizning Telegram ID raqamingiz
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# Yuklab olingan videolarni vaqtincha saqlash uchun papka
 DOWNLOAD_DIR = "downloads"
+DATA_FILE = "users.json"
+
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-@dp.message(CommandStart())
-async def cmd_start(message: types.Message):
-    start_text = (
-        "🚀Salom! Menga ijtimoiy tarmoqdan video havolasini yuboring, men uni sizga yuklab beraman."
-    )
-    await message.answer(start_text, parse_mode="Markdown")
+# Ma'lumotlar bazasini yuklash va saqlash
+def load_data():
+    if not os.path.exists(DATA_FILE):
+        return {"users": {}, "banned": []}
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {"users": {}, "banned": []}
 
-@dp.message(F.text.startswith("http"))
-async def download_video(message: types.Message):
-    url = message.text
+def save_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+# Tillarga oid matnlar paketi
+LANGUAGES = {
+    "uz": {
+        "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan (Instagram, TikTok, YouTube, Pinterest) havola yuboring, men uni bir zumda yuklab beraman! 🚀\n\n*Meni guruhlarga qo'shsangiz, guruhdagi havolalarni ham avtomatik yuklab beraman!* 🔥",
+        "error_domain": "⚠️ Xatolik! Havola faqat Instagram, YouTube, TikTok yoki Pinterest tarmog‘iga tegishli bo‘lishi kerak.",
+        "wait": "⏳ Video tahlil qilinmoqda...",
+        "yt_choose": "🎬 YouTube videosi aniqlandi! Yuklab olish formatini tanlang:",
+        "success": "⚡️ @tezzzsaverbot orqali yuklab olindi!",
+        "fail": "❌ Yuklashda xatolik yuz berdi. Havola yopiq yoki noto'g'ri bo'lishi mumkin.",
+        "banned_msg": "🚫 Siz botdan foydalanishdan bloklangansiz!"
+    },
+    "ru": {
+        "start": "⚡️ **Добро пожаловать!**\nОтправьте мне ссылку из соцсетей (Instagram, TikTok, YouTube, Pinterest), и я мгновенно скачаю её для вас! 🚀\n\n*Добавьте меня в группы, и я буду автоматически скачивать видео и там!* 🔥",
+        "error_domain": "⚠️ Ошибка! Ссылка должна быть только из Instagram, YouTube, TikTok или Pinterest.",
+        "wait": "⏳ Видео анализируется...",
+        "yt_choose": "🎬 Обнаружено видео с YouTube! Выберите формат для скачивания:",
+        "success": "⚡️ Скачано с помощью @tezzzsaverbot!",
+        "fail": "❌ Произошла ошибка при скачивании. Возможно, ссылка приватная или неверная.",
+        "banned_msg": "🚫 Вы заблокированы в этом боте!"
+    },
+    "en": {
+        "start": "⚡️ **Welcome!**\nSend me a link from social media (Instagram, TikTok, YouTube, Pinterest), and I will download it instantly! 🚀\n\n*Add me to groups, and I will automatically download videos there too!* 🔥",
+        "error_domain": "⚠️ Error! The link must be only from Instagram, YouTube, TikTok, or Pinterest.",
+        "wait": "⏳ Analyzing video...",
+        "yt_choose": "🎬 YouTube video detected! Choose download format:",
+        "success": "⚡️ Downloaded via @tezzzsaverbot!",
+        "fail": "❌ Error occurred during download. The link might be private or invalid.",
+        "banned_msg": "🚫 You are banned from using this bot!"
+    }
+}
+
+# Bloklanganlikni tekshirish
+def check_ban(func):
+    async def wrapper(message_or_call, *args, **kwargs):
+        user_id = str(message_or_call.from_user.id)
+        data = load_data()
+        if user_id in data.get("banned", []):
+            if isinstance(message_or_call, types.Message):
+                await message_or_call.answer("🚫 Access Denied / Bloklangansiz")
+            return
+        return await func(message_or_call, *args, **kwargs)
+    return wrapper
+
+# 1. Til Tanlash va Start buyrug'i
+@dp.message(CommandStart())
+@check_ban
+async def cmd_start(message: types.Message):
+    user_id = str(message.from_user.id)
+    data = load_data()
     
-    # Faqat bizga kerakli tarmoqlarni tekshirish (Endi Pinterest ham bor)
-    allowed_domains = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be", "pinterest.com", "pin.it"]
-    if not any(domain in url for domain in allowed_domains):
-        await message.answer("⚠️ Xatolik!\n\nIltimos, yuborgan havolangizni tekshirib ko‘ring. Havola faqat Instagram, YouTube, TikTok yoki Pinterest tarmog‘iga tegishli bo‘lishi kerak. 🔄")
+    if user_id not in data["users"]:
+        data["users"][user_id] = {"lang": "uz", "platform": "unknown"}
+        save_data(data)
+        
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        types.InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang_uz"),
+        types.InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru"),
+        types.InlineKeyboardButton(text="🇺🇸 English", callback_data="lang_en")
+    )
+    if message.from_user.id == ADMIN_ID:
+        builder.row(types.InlineKeyboardButton(text="⚙️ Admin Panel", callback_data="admin_panel"))
+        
+    await message.answer("🌐 Choose language / Tilni tanlang / Выберите язык:", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("lang_"))
+async def set_language(callback: types.CallbackQuery):
+    lang = callback.data.split("_")[1]
+    user_id = str(callback.from_user.id)
+    data = load_data()
+    
+    if user_id not in data["users"]:
+        data["users"][user_id] = {}
+    data["users"][user_id]["lang"] = lang
+    save_data(data)
+    
+    await callback.message.edit_text(LANGUAGES[lang]["start"], parse_mode="Markdown")
+
+# 2. Admin Panel (Ban/Unban va Rassilka)
+@dp.callback_query(F.data == "admin_panel")
+async def open_admin_panel(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID: return
+    data = load_data()
+    admin_text = (
+        "📊 **Kengaytirilgan Admin Panel**\n\n"
+        f"👥 Foydalanuvchilar: **{len(data['users'])} ta**\n"
+        f"🚫 Bloklanganlar: **{len(data['banned'])} ta**\n\n"
+        "📢 **Rassilka:** `/send [matn]`\n"
+        "🚫 **Bloklash:** `/ban [ID]`\n"
+        "🔓 **Blokdan ochish:** `/unban [ID]`"
+    )
+    await callback.message.edit_text(admin_text, parse_mode="Markdown")
+
+@dp.message(Command("send"))
+async def admin_broadcast(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    text = message.text.replace("/send", "").strip()
+    if not text: return await message.answer("⚠️ Matn yozing.")
+    data = load_data()
+    status_msg = await message.answer("📢 Rassilka yuborilmoqda...")
+    success, failed = 0, 0
+    for uid in data["users"].keys():
+        try:
+            await bot.send_message(chat_id=int(uid), text=text)
+            success += 1
+            await asyncio.sleep(0.05)
+        except: failed += 1
+    await status_msg.edit_text(f"✅ Yetkazildi: {success}\n❌ Bloklaganlar: {failed}")
+
+@dp.message(Command("ban"))
+async def ban_user(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    uid = message.text.replace("/ban", "").strip()
+    if not uid: return await message.answer("⚠️ ID ko'rsating.")
+    data = load_data()
+    if uid not in data["banned"]:
+        data["banned"].append(uid)
+        save_data(data)
+        await message.answer(f"🚫 Foydalanuvchi {uid} bloklandi.")
+
+@dp.message(Command("unban"))
+async def unban_user(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    uid = message.text.replace("/unban", "").strip()
+    if not uid: return await message.answer("⚠️ ID ko'rsating.")
+    data = load_data()
+    if uid in data["banned"]:
+        data["banned"].remove(uid)
+        save_data(data)
+        await message.answer(f"🔓 Foydalanuvchi {uid} blokdan ochildi.")
+
+# 3. Guruhlar va Shaxsiy chatlarda Havolalarni Avtomatik aniqlash va Yuklash
+@dp.message(F.text)
+@check_ban
+async def handle_messages(message: types.Message):
+    user_id = str(message.from_user.id)
+    data = load_data()
+    
+    # Bazaga qo'shib qo'yish (guruh a'zolarini ham)
+    if user_id not in data["users"]:
+        data["users"][user_id] = {"lang": "uz", "platform": "group_user" if message.chat.type != "private" else "private"}
+        save_data(data)
+        
+    lang = data["users"].get(user_id, {}).get("lang", "uz")
+    
+    # Matn ichidan linklarni qidirish (guruhda odamlar gap orasida link tashlashi mumkin)
+    urls = re.findall(r'(https?://[^\s]+)', message.text)
+    if not urls:
         return
 
-    status_msg = await message.answer("⏳ Video tahlil qilinmoqda va yuklanmoqda... Iltimos, biroz kuting.")
+    url = urls[0] # Birinchi topilgan havolani olamiz
+    
+    allowed = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be", "pinterest.com", "pin.it"]
+    if not any(d in url for d in allowed):
+        # Guruhlarda xalaqit bermaslik uchun faqat shaxsiy chatda xatolik matnini chiqaramiz
+        if message.chat.type == "private":
+            await message.answer(LANGUAGES[lang]["error_domain"])
+        return
+        
+    # Agarda YouTube bo'lsa va bu shaxsiy chat bo'lsa sifat tanlashni chiqaramiz. 
+    # Guruhlarda esa sifat so'ramay, avtomatik o'rta sifatda (360p/best) darhol yuklab beradi (guruh interfeysini buzmaslik uchun)
+    if ("youtube.com" in url or "youtu.be" in url) and message.chat.type == "private":
+        builder = InlineKeyboardBuilder()
+        builder.row(
+            types.InlineKeyboardButton(text="🎬 720p (HD)", callback_data=f"yt_720p|{url[:40]}"),
+            types.InlineKeyboardButton(text="📺 360p (SD)", callback_data=f"yt_360p|{url[:40]}")
+        )
+        builder.row(types.InlineKeyboardButton(text="🎵 Faqat MP3", callback_data=f"yt_mp3|{url[:40]}"))
+        data["users"][user_id]["last_url"] = url
+        save_data(data)
+        await message.answer(LANGUAGES[lang]["yt_choose"], reply_markup=builder.as_markup())
+    else:
+        # Guruhlar yoki boshqa tarmoqlar uchun to'g'ridan-to'g'ri yuklash
+        status_msg = await message.reply(LANGUAGES[lang]["wait"])
+        await process_download(status_msg, url, lang, 'bestvideo[height<=480]+bestaudio/best' if "youtube" in url else 'bestvideo+bestaudio/best')
 
+@dp.callback_query(F.data.startswith("yt_"))
+async def format_callback(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    data = load_data()
+    lang = data["users"].get(user_id, {}).get("lang", "uz")
+    url = data["users"].get(user_id, {}).get("last_url", "")
+    
+    if not url: return await callback.answer("Xatolik.")
+    fmt = callback.data.split("|")[0]
+    
+    ydl_format = 'bestvideo[height<=720]+bestaudio/best'
+    if fmt == "yt_360p": ydl_format = 'bestvideo[height<=360]+bestaudio/best'
+    elif fmt == "yt_mp3": ydl_format = 'bestaudio/best'
+    
+    await callback.message.edit_text(LANGUAGES[lang]["wait"])
+    await process_download(callback.message, url, lang, ydl_format, is_audio=(fmt=="yt_mp3"))
+
+async def process_download(msg, url, lang, ydl_format, is_audio=False):
     ydl_opts = {
-        'format': 'best',
+        'format': ydl_format,
         'outtmpl': os.path.join(DOWNLOAD_DIR, '%(id)s.%(ext)s'),
         'no_warnings': True,
         'quiet': True
     }
+    if is_audio:
+        ydl_opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
+            if is_audio:
+                filename = os.path.splitext(filename)[0] + ".mp3"
             
-        # Videoni foydalanuvchiga yuborish
-        video_file = types.FSInputFile(filename)
-        caption_text = "⚡️ @tezzzsaverbot orqali muvaffaqiyatli yuklab olindi!"
+            if not os.path.exists(filename) and not is_audio:
+                base = os.path.splitext(filename)[0]
+                for ext in ['mp4', 'mkv', 'webm', 'mov']:
+                    if os.path.exists(f"{base}.{ext}"): filename = f"{base}.{ext}"; break
+
+        file_input = types.FSInputFile(filename)
         
-        await message.answer_video(video=video_file, caption=caption_text)
-        await status_msg.delete()
-        
-        # Server joyini to'ldirmaslik uchun videoni o'chirish
-        if os.path.exists(filename):
-            os.remove(filename)
+        # Guruhda yoki shaxsiy chatda javob qaytarish tizimi
+        if is_audio:
+            await bot.send_audio(chat_id=msg.chat.id, audio=file_input, caption=LANGUAGES[lang]["success"])
+        else:
+            await bot.send_video(chat_id=msg.chat.id, video=file_input, caption=LANGUAGES[lang]["success"])
             
-    except Exception as e:
-        await status_msg.edit_text("❌ Videoni yuklab olishda xatolik yuz berdi. Havola yopiq profildan olingan yoki xato bo‘lishi mumkin.")
-        if 'filename' in locals() and os.path.exists(filename):
-            os.remove(filename)
+        await msg.delete()
+        if os.path.exists(filename): os.remove(filename)
+    except:
+        await msg.edit_text(LANGUAGES[lang]["fail"])
+
+# 4. Inline Rejim
+@dp.inline_query()
+async def inline_download(inline_query: types.InlineQuery):
+    url = inline_query.query.strip()
+    if not url.startswith("http"): return
+    results = [
+        InlineQueryResultArticle(
+            id="1",
+            title="📥 Videoni bu yerga yuklash",
+            description=f"Havolani yuborish: {url}",
+            input_message_content=InputTextMessageContent(message_text=url)
+        )
+    ]
+    await inline_query.answer(results, cache_time=1)
 
 async def main():
     await dp.start_polling(bot)
