@@ -9,6 +9,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 import yt_dlp
+import instaloader
 
 # FFmpeg ni avtomatik imageio_ffmpeg orqali topish (Windows va Linuxda ishlaydi)
 import shutil
@@ -31,10 +32,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiohttp import web
 from supabase import create_client, Client
 
-# Konsolda va Render logsida ma'lumotlar darhol ko'rinishi uchun
+# Konsolda va Render logsida ma'lumotlar darhol ko'rinishi va UTF-8 xatolik bermasligi uchun
 try:
-    sys.stdout.reconfigure(line_buffering=True)
-    sys.stderr.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
 except Exception:
     pass
 
@@ -454,6 +455,41 @@ async def download_instagram_direct(url, out_path):
         return False, None
 
     shortcode = shortcode_match.group(1)
+
+    # 1. Instaloader orqali to'g'ridan-to'g'ri HD video oqimini olish
+    try:
+        loop = asyncio.get_event_loop()
+        def extract_il():
+            L = instaloader.Instaloader(
+                download_pictures=False,
+                download_videos=False,
+                download_video_thumbnails=False,
+                download_geotags=False,
+                download_comments=False,
+                save_metadata=False,
+                compress_json=False
+            )
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+            if post.is_video:
+                return post.video_url, post.title or post.caption or "Instagram Video"
+            else:
+                return post.url, "Instagram Photo"
+
+        v_url, title = await loop.run_in_executor(None, extract_il)
+        if v_url:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(v_url, timeout=aiohttp.ClientTimeout(total=20)) as r:
+                    if r.status == 200:
+                        with open(out_path, "wb") as f:
+                            while True:
+                                chunk = await r.content.read(65536)
+                                if not chunk: break
+                                f.write(chunk)
+                        return True, title
+    except Exception as e:
+        print(f"Instaloader error: {e}")
+
+    # 2. Zaxira: Embed orqali qidirish
     embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -482,6 +518,7 @@ async def download_instagram_direct(url, out_path):
                             return True, "Instagram Video"
     except Exception as e:
         print(f"Instagram embed error: {e}")
+
     return False, None
 
 async def download_pinterest_direct(url, out_path_base):
