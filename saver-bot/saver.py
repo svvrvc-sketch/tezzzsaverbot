@@ -584,8 +584,17 @@ async def download_pinterest_direct(url, out_path_base):
             if not image_matches:
                 image_matches = re.findall(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', clean_html)
 
-            if image_matches:
-                best_img = image_matches[0].replace('&amp;', '&')
+            valid_images = [
+                img for img in image_matches 
+                if 'facebook_share_image' not in img 
+                and 'logo' not in img.lower() 
+                and 'default' not in img.lower()
+                and 'favicon' not in img.lower()
+                and not img.endswith('.svg')
+            ]
+
+            if valid_images:
+                best_img = valid_images[0].replace('&amp;', '&')
                 ext = best_img.split('?')[0].split('.')[-1].lower()
                 if ext not in ['jpg', 'jpeg', 'png', 'webp', 'gif']: ext = 'jpg'
                 img_out = f"{out_path_base}.{ext}"
