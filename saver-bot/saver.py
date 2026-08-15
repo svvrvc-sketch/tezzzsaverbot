@@ -568,29 +568,27 @@ async def download_pinterest_direct(url, out_path_base):
     return False, None, None
 
 def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
-    # Format tanlash
+    # Universal format tanlash
     if is_audio:
-        fmt = 'bestaudio[ext=m4a]/bestaudio/best'
+        fmt = 'ba/b'
     elif quality:
         if str(quality) == '360':
-            fmt = '18/b[height<=360][ext=mp4]/bestvideo[height<=360]+bestaudio/best[height<=360]/best'
+            fmt = 'bv*[height<=360]+ba/b[height<=360]/bv*+ba/b'
         elif str(quality) == '720':
-            fmt = '22/bestvideo[height<=720][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720]/best'
+            fmt = 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b'
         else:
-            fmt = f'bestvideo[height<={quality}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
+            fmt = f'bv*[height<={quality}]+ba/b[height<={quality}]/bv*+ba/b'
     else:
-        if 'youtube' in url or 'youtu.be' in url:
-            fmt = '22/18/bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
-        else:
-            fmt = 'best[ext=mp4]/bestvideo+bestaudio/best/b'
+        fmt = 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b'
 
     ydl_opts = {
         'format': fmt,
         'outtmpl': out_template,
+        'merge_output_format': 'mp4' if not is_audio else None,
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
-        'socket_timeout': 10,
+        'socket_timeout': 15,
         'max_filesize': MAX_FILE_SIZE,
     }
 
@@ -608,14 +606,6 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
             ydl_opts['impersonate'] = IMPERSONATE_TARGET
         except Exception:
             pass
-
-    if 'youtube' in url or 'youtu.be' in url:
-        ydl_opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['android', 'ios', 'web']
-            }
-        }
-        ydl_opts['concurrent_fragment_downloads'] = 5
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -738,6 +728,7 @@ async def process_media_download(msg_to_edit, url, lang, platform=None, quality=
         # Vertikal tugmalar
         builder = InlineKeyboardBuilder()
         builder.row(types.InlineKeyboardButton(text="👈 Guruhga qo'shish ⤴️", url=f"https://t.me/{bot_info.username}?startgroup=true"))
+        builder.row(types.InlineKeyboardButton(text="🚀 Ulashish", switch_inline_query=""))
 
         if media_type == "image":
             file_input = types.FSInputFile(found_file)
@@ -775,7 +766,7 @@ async def process_media_download(msg_to_edit, url, lang, platform=None, quality=
             video_file = types.FSInputFile(target_vid)
             thumb_file = types.FSInputFile(thumb_path) if thumb_path else None
 
-            sent_video = await bot.send_video(
+            await bot.send_video(
                 chat_id=msg_to_edit.chat.id,
                 video=video_file,
                 duration=duration if duration > 0 else None,
@@ -783,16 +774,16 @@ async def process_media_download(msg_to_edit, url, lang, platform=None, quality=
                 height=height if height > 0 else None,
                 thumbnail=thumb_file,
                 supports_streaming=True,
-                caption=LANGUAGES[lang]["success"]
+                caption=LANGUAGES[lang]["success"],
+                reply_markup=builder.as_markup()
             )
-            # Ulashish tugmasi
-            builder.row(types.InlineKeyboardButton(text="🚀 Ulashish", switch_inline_query=sent_video.video.file_id))
-            await sent_video.edit_reply_markup(reply_markup=builder.as_markup())
 
         await msg_to_edit.delete()
 
     except Exception as e:
+        import traceback
         print(f"Umumiy yuklash xatoligi: {e}")
+        traceback.print_exc()
         try:
             await msg_to_edit.edit_text(LANGUAGES[lang]["fail"])
         except Exception:
