@@ -530,6 +530,10 @@ async def download_pinterest_direct(url, out_path_base):
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                final_url = str(resp.url)
+                if final_url.rstrip('/') == "https://www.pinterest.com" or "pinterest.com/pin/" not in final_url:
+                    print(f"Pinterest havola o'chirilgan yoki bosh sahifaga yo'naltirildi: {final_url}", flush=True)
+                    return False, None, None
                 html = await resp.text()
 
             clean_html = html.replace(r'\/', '/').replace(r'\u002F', '/')
