@@ -16,11 +16,17 @@ except Exception:
     IMPERSONATE_TARGET = None
 
 # FFmpeg ni avtomatik imageio_ffmpeg orqali topish (Windows va Linuxda ishlaydi)
+import shutil
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+    if FFMPEG_PATH and os.path.exists(FFMPEG_PATH):
+        try:
+            os.chmod(FFMPEG_PATH, 0o755)
+        except Exception:
+            pass
 except Exception:
-    FFMPEG_PATH = None
+    FFMPEG_PATH = shutil.which("ffmpeg")
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
@@ -562,7 +568,7 @@ async def download_pinterest_direct(url, out_path_base):
     return False, None, None
 
 def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
-    # Telegram uchun 100% tezkor va mos formatlar (18=360p, 22=720p to'g'ridan-to'g'ri oqim)
+    # Format tanlash
     if is_audio:
         fmt = 'bestaudio[ext=m4a]/bestaudio/best'
     elif quality:
@@ -573,7 +579,10 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
         else:
             fmt = f'bestvideo[height<={quality}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]/best'
     else:
-        fmt = '22/18/bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+        if 'youtube' in url or 'youtu.be' in url:
+            fmt = '22/18/bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+        else:
+            fmt = 'best[ext=mp4]/bestvideo+bestaudio/best/b'
 
     ydl_opts = {
         'format': fmt,
@@ -814,7 +823,12 @@ async def start_web_server():
 
 async def main():
     await start_web_server()
-    await dp.start_polling(bot)
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+    except Exception as e:
+        print(f"Webhook tozalashda xatolik: {e}")
+    print("✅ Saver Bot muvaffaqiyatli ishga tushdi va xabarlarni qabul qilmoqda!")
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == '__main__':
     asyncio.run(main())
