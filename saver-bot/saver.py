@@ -9,11 +9,6 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 import yt_dlp
-try:
-    from yt_dlp.networking.impersonate import ImpersonateTarget
-    IMPERSONATE_TARGET = ImpersonateTarget.from_str('chrome')
-except Exception:
-    IMPERSONATE_TARGET = None
 
 # FFmpeg ni avtomatik imageio_ffmpeg orqali topish (Windows va Linuxda ishlaydi)
 import shutil
@@ -36,17 +31,17 @@ from aiogram.fsm.state import State, StatesGroup
 from aiohttp import web
 from supabase import create_client, Client
 
-# Windows konsolida UTF-8 muammolarini oldini olish
-if sys.platform == 'win32':
-    try:
-        sys.stdout.reconfigure(encoding='utf-8')
-    except Exception:
-        pass
+# Konsolda va Render logsida ma'lumotlar darhol ko'rinishi uchun
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 # --- SOZLAMALARNI YUKLASH (.env) ---
 load_dotenv()
 
-API_TOKEN = os.getenv('BOT_TOKEN', '8747746960:AAFPVKsQ4o5gfbayRUlbOOQ_rXGGoY5hMJY')
+API_TOKEN = os.getenv('BOT_TOKEN', '8747746960:AAEStDxdU6EKD0F5uqsUZIlVi0b4mYFqN7c')
 ADMIN_ID = int(os.getenv('ADMIN_ID', '5111794979'))
 
 USE_MANDATORY_SUB = os.getenv('USE_MANDATORY_SUB', 'False').lower() == 'true'
@@ -355,22 +350,25 @@ async def handle_messages(message: types.Message):
     urls = re.findall(r'(https?://[^\s]+)', message.text)
     if not urls: return
 
+    url = urls[0]
+    print(f"📥 [LOG] Yangi havola keldi (User {user_id}): {url}", flush=True)
+
     if not await is_subscribed(user_id):
         sub_builder = InlineKeyboardBuilder()
         sub_builder.row(types.InlineKeyboardButton(text="📢 Kanalga o'tish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@','') }"))
         sub_builder.row(types.InlineKeyboardButton(text=LANGUAGES[lang]["check_sub_btn"], callback_data="check_subscription"))
         return await message.answer(LANGUAGES[lang]["sub_required"], reply_markup=sub_builder.as_markup())
 
-    url = urls[0]
     platform = None
-    if "instagram.com" in url: platform = "instagram"
-    elif "tiktok.com" in url or "douyin.com" in url: platform = "tiktok"
+    if "instagram.com" in url or "instagr.am" in url: platform = "instagram"
+    elif "tiktok.com" in url or "douyin.com" in url or "tikwm.com" in url: platform = "tiktok"
     elif "youtube.com" in url or "youtu.be" in url: platform = "youtube"
     elif "pinterest.com" in url or "pin.it" in url: platform = "pinterest"
     elif "twitter.com" in url or "x.com" in url: platform = "twitter"
-    elif "facebook.com" in url or "fb.watch" in url: platform = "facebook"
+    elif "facebook.com" in url or "fb.watch" in url or "fb.com" in url: platform = "facebook"
+    else: platform = "generic"
 
-    if not platform: return
+    print(f"🎯 [LOG] Aniqlangan platforma: {platform}", flush=True)
     db_set_last_url(user_id, url)
 
     if platform == "youtube":
@@ -451,7 +449,7 @@ async def download_tiktok_direct(url, out_path):
     return False, None
 
 async def download_instagram_direct(url, out_path):
-    shortcode_match = re.search(r'(?:p|reel|tv)/([A-Za-z0-9_-]+)', url)
+    shortcode_match = re.search(r'(?:p|reel|reels|tv|share/reel)/([A-Za-z0-9_-]+)', url)
     if not shortcode_match:
         return False, None
 
@@ -601,11 +599,13 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
     if PROXY_URL:
         ydl_opts['proxy'] = PROXY_URL
 
-    if IMPERSONATE_TARGET:
-        try:
-            ydl_opts['impersonate'] = IMPERSONATE_TARGET
-        except Exception:
-            pass
+    if 'youtube' in url or 'youtu.be' in url:
+        ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        }
+        ydl_opts['concurrent_fragment_downloads'] = 5
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
@@ -669,6 +669,7 @@ async def process_media_download(msg_to_edit, url, lang, platform=None, quality=
     outtmpl_pattern = os.path.join(DOWNLOAD_DIR, f"{unique_prefix}.%(ext)s")
 
     try:
+        print(f"🚀 [LOG] Yuklash jarayoni boshlandi: {platform} -> {url}", flush=True)
         loop = asyncio.get_event_loop()
         info = {}
         download_success = False
