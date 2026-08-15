@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: saver-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python saver.py
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: USE_MANDATORY_SUB
+        value: "false"
+      - key: REQUIRED_CHANNEL
+        value: "@openwebacademy"
