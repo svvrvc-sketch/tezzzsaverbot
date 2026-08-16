@@ -237,7 +237,7 @@ def db_get_last_url(user_id):
 # --- TILLAR VA MATNLAR ---
 LANGUAGES = {
     "uz": {
-        "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan (Instagram, TikTok, YouTube, Pinterest, Telegram) havola yuboring, uni bir zumda yuklab beraman! 🚀",
+        "start": "⚡️ **Xush kelibsiz!**\nMenga ijtimoiy tarmoqlardan (Instagram, TikTok, YouTube, Pinterest) havola yuboring, uni bir zumda yuklab beraman! 🚀",
         "wait": "⏳ Video yuqori tezlikda yuklanmoqda, iltimos kuting...",
         "audio_wait": "⏳ Audio (MP3) tayyorlanmoqda, iltimos kuting...",
         "choose_format": "🎬 YouTube videosi aniqlandi! Qaysi formatda yuklamoqchisiz?",
@@ -248,7 +248,7 @@ LANGUAGES = {
         "check_sub_btn": "✅ A'zo bo'ldim / Tekshirish"
     },
     "ru": {
-        "start": "⚡️ **Добро пожаловать!**\nОтправьте мне ссылку (Instagram, TikTok, YouTube, Pinterest, Telegram), и я скачаю её! 🚀",
+        "start": "⚡️ **Добро пожаловать!**\nОтправьте мне ссылку (Instagram, TikTok, YouTube, Pinterest), и я скачаю её! 🚀",
         "wait": "⏳ Видео загружается на высокой скорости, подождите...",
         "audio_wait": "⏳ Аудио (MP3) обрабатывается, подождите...",
         "choose_format": "🎬 Обнаружено видео YouTube! Выберите формат:",
@@ -259,7 +259,7 @@ LANGUAGES = {
         "check_sub_btn": "✅ Я подписался"
     },
     "en": {
-        "start": "⚡️ **Welcome!**\nSend me a link (Instagram, TikTok, YouTube, Pinterest, Telegram), and I will download it! 🚀",
+        "start": "⚡️ **Welcome!**\nSend me a link (Instagram, TikTok, YouTube, Pinterest), and I will download it! 🚀",
         "wait": "⏳ Video is downloading at high speed, please wait...",
         "audio_wait": "⏳ Audio (MP3) is being prepared, please wait...",
         "choose_format": "🎬 YouTube video detected! Choose format:",
@@ -436,6 +436,10 @@ async def handle_messages(message: types.Message):
         sub_builder.row(types.InlineKeyboardButton(text=LANGUAGES[lang]["check_sub_btn"], callback_data="check_subscription"))
         return await message.answer(LANGUAGES[lang]["sub_required"], reply_markup=sub_builder.as_markup())
 
+    # Telegram havolalari haqida xabar
+    if "t.me/" in url or "telegram.me/" in url:
+        return await message.answer("ℹ️ Telegram hikoyalarini havola orqali yuklab bo'lmaydi.\n\n⚡️ Bot quyidagi platformalardan video yuklab bera oladi:\n• 📸 **Instagram** (Reels, Post, Video)\n• 🎵 **TikTok** (HD video)\n• 🎬 **YouTube** (Shorts & Video)\n• 📌 **Pinterest** (Video & Rasm)")
+
     platform = None
     if "instagram.com" in url or "instagr.am" in url: platform = "instagram"
     elif "tiktok.com" in url or "douyin.com" in url or "tikwm.com" in url: platform = "tiktok"
@@ -443,7 +447,6 @@ async def handle_messages(message: types.Message):
     elif "pinterest.com" in url or "pin.it" in url: platform = "pinterest"
     elif "twitter.com" in url or "x.com" in url: platform = "twitter"
     elif "facebook.com" in url or "fb.watch" in url or "fb.com" in url: platform = "facebook"
-    elif "t.me/" in url or "telegram.me/" in url: platform = "telegram"
     else: platform = "generic"
 
     print(f"🎯 [LOG] Aniqlangan platforma: {platform}", flush=True)
@@ -479,23 +482,6 @@ async def youtube_download_callback(callback: types.CallbackQuery):
     else:
         await callback.message.edit_text(LANGUAGES[lang]["wait"])
         await process_media_download(callback.message, url, lang, platform="youtube", quality=choice, is_audio=False)
-
-# --- TELEGRAM HIKOYALAR (FORWARD QILINGAN STORYLAR) ---
-@dp.message(F.story)
-@check_ban
-async def handle_forwarded_story(message: types.Message):
-    user_id = message.from_user.id
-    db_add_user(user_id)
-    lang = db_get_lang(user_id)
-    story = message.story
-    chat_username = story.chat.username if story.chat else None
-
-    if chat_username:
-        story_url = f"https://t.me/{chat_username}/s/{story.id}"
-        status_msg = await message.answer(LANGUAGES[lang]["wait"])
-        await process_media_download(status_msg, story_url, lang, platform="telegram", is_audio=False)
-    else:
-        await message.answer("ℹ️ Ushbu hikoyani yuklab olish uchun uning havolasini (havolani nusxalab) yuboring.")
 
 # --- INLINE REJIM ---
 @dp.inline_query()
@@ -729,80 +715,6 @@ async def download_pinterest_direct(url, out_path_base):
 
     return False, None, None
 
-async def download_telegram_direct(url, out_path_base):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-    }
-    try:
-        # Telegram Story yoki Post preview linklari
-        clean_url = url.split('?')[0]
-        fetch_urls = [clean_url, clean_url + "?embed=1", clean_url + "?single=1"]
-        
-        for u in fetch_urls:
-            async with aiohttp.ClientSession(headers=headers) as session:
-                async with session.get(u, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status != 200:
-                        continue
-                    html = await resp.text()
-
-            clean_html = html.replace(r'\/', '/').replace(r'\u002F', '/')
-
-            # 1. Video qidirish (og:video, video tag, telesco.pe mp4)
-            video_matches = re.findall(r'<meta[^>]+property=["\']og:video(?::secure_url)?["\'][^>]+content=["\']([^"\']+)["\']', clean_html)
-            if not video_matches:
-                video_matches = re.findall(r'<video[^>]+src=["\']([^"\']+)["\']', clean_html)
-            if not video_matches:
-                video_matches = re.findall(r'(https?://[^\s"\'<>]+\.telesco\.pe/[^\s"\'<>]+\.mp4)', clean_html)
-            if not video_matches:
-                video_matches = re.findall(r'(https?://cdn[0-9]*\.telesco\.pe/[^\s"\'<>]+\.mp4)', clean_html)
-
-            if video_matches:
-                vid_url = video_matches[0].replace('&amp;', '&')
-                print(f"[Telegram] Video topildi: {vid_url}", flush=True)
-                v_out = f"{out_path_base}.mp4"
-                async with aiohttp.ClientSession(headers=headers) as dl_session:
-                    async with dl_session.get(vid_url, timeout=aiohttp.ClientTimeout(total=30)) as vr:
-                        if vr.status == 200:
-                            with open(v_out, "wb") as f:
-                                while True:
-                                    chunk = await vr.content.read(65536)
-                                    if not chunk: break
-                                    f.write(chunk)
-                            if os.path.exists(v_out) and os.path.getsize(v_out) > 1024:
-                                return True, "video", v_out
-
-            # 2. Rasm / Photo hikoya qidirish (og:image, telesco.pe fayl)
-            img_matches = re.findall(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', clean_html)
-            if not img_matches:
-                img_matches = re.findall(r'(https?://[^\s"\'<>]+\.telesco\.pe/file/[^\s"\'<>]+)', clean_html)
-            if not img_matches:
-                img_matches = re.findall(r'background-image:url\(\'([^\']+)\'\)', clean_html)
-
-            valid_imgs = [
-                img.replace('&amp;', '&') for img in img_matches 
-                if 'favicon' not in img.lower() and not img.endswith('.svg') and 'telegram-logo' not in img.lower()
-            ]
-
-            if valid_imgs:
-                img_url = valid_imgs[0]
-                print(f"[Telegram] Rasm topildi: {img_url}", flush=True)
-                img_out = f"{out_path_base}.jpg"
-                async with aiohttp.ClientSession(headers=headers) as dl_session:
-                    async with dl_session.get(img_url, timeout=aiohttp.ClientTimeout(total=20)) as ir:
-                        if ir.status == 200:
-                            with open(img_out, "wb") as f:
-                                while True:
-                                    chunk = await ir.content.read(65536)
-                                    if not chunk: break
-                                    f.write(chunk)
-                            if os.path.exists(img_out) and os.path.getsize(img_out) > 1024:
-                                return True, "image", img_out
-    except Exception as e:
-        print(f"Telegram hikoya/post yuklash xatoligi: {e}", flush=True)
-
-    return False, None, None
-
 def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
     # Universal format tanlash (har xil platformalar va YouTube uchun)
     if is_audio:
@@ -974,16 +886,7 @@ async def process_media_download(msg_to_edit, url, lang, platform=None, quality=
                 downloaded_files.append(p_path)
                 info = {'title': 'Pinterest Pin', 'uploader': 'Pinterest'}
 
-        # 4. Telegram Story yoki Post maxsus yuklash
-        elif platform == "telegram":
-            ok, tg_type, tg_path = await download_telegram_direct(url, os.path.join(DOWNLOAD_DIR, unique_prefix))
-            if ok and tg_path and os.path.exists(tg_path):
-                download_success = True
-                media_type = tg_type
-                downloaded_files.append(tg_path)
-                info = {'title': 'Telegram Hikoya', 'uploader': 'Telegram'}
-
-        # 5. Agar direct usul ishlamasa yoki YouTube/Twitter/FB bo'lsa -> yt-dlp
+        # 4. Agar direct usul ishlamasa yoki YouTube/Twitter/FB bo'lsa -> yt-dlp
         if not download_success:
             try:
                 info = await loop.run_in_executor(

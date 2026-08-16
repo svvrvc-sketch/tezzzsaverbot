@@ -17,3 +17,11 @@ services:
         value: "false"
       - key: REQUIRED_CHANNEL
         value: "@openwebacademy"
+      - key: PROXY_URL
+        sync: false
+      - key: COOKIE_DATA
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
