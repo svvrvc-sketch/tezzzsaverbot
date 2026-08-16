@@ -531,7 +531,7 @@ async def download_pinterest_direct(url, out_path_base):
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                 final_url = str(resp.url)
-                if final_url.rstrip('/') == "https://www.pinterest.com" or "pinterest.com/pin/" not in final_url:
+                if final_url.rstrip('/') == "https://www.pinterest.com" or ("pinterest.com/pin/" not in final_url and "pin.it" not in url):
                     print(f"Pinterest havola o'chirilgan yoki bosh sahifaga yo'naltirildi: {final_url}", flush=True)
                     return False, None, None
                 html = await resp.text()
@@ -557,29 +557,22 @@ async def download_pinterest_direct(url, out_path_base):
                     best_video = v
 
             if best_video:
+                print(f"[Pinterest] Video topildi: {best_video}", flush=True)
                 v_out = f"{out_path_base}.mp4"
-                if FFMPEG_PATH:
-                    cmd = [
-                        FFMPEG_PATH, '-y',
-                        '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n',
-                        '-i', best_video,
-                        '-c', 'copy',
-                        '-movflags', '+faststart',
-                        v_out
-                    ]
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(None, lambda: subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-                    if os.path.exists(v_out) and os.path.getsize(v_out) > 1024:
-                        return True, "video", v_out
-                else:
-                    async with session.get(best_video, timeout=aiohttp.ClientTimeout(total=20)) as r:
+                dl_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "https://www.pinterest.com/"
+                }
+                async with aiohttp.ClientSession(headers=dl_headers) as dl_session:
+                    async with dl_session.get(best_video, timeout=aiohttp.ClientTimeout(total=30)) as r:
                         if r.status == 200:
                             with open(v_out, "wb") as f:
                                 while True:
                                     chunk = await r.content.read(65536)
                                     if not chunk: break
                                     f.write(chunk)
-                            return True, "video", v_out
+                            if os.path.exists(v_out) and os.path.getsize(v_out) > 1024:
+                                return True, "video", v_out
 
             # 2. Rasm pinlarni qidirish (Original sifat .png, .jpg)
             image_matches = re.findall(r'(https?://i\.pinimg\.com/originals/[a-zA-Z0-9_./-]+\.(?:jpg|jpeg|png|webp|gif))', clean_html)
@@ -590,7 +583,9 @@ async def download_pinterest_direct(url, out_path_base):
 
             valid_images = [
                 img for img in image_matches 
-                if 'facebook_share_image' not in img 
+                if 'd53b014d86a6b6761bf649a0ed813c2b' not in img
+                and 'd5/3b/01' not in img
+                and 'facebook_share_image' not in img 
                 and 'logo' not in img.lower() 
                 and 'default' not in img.lower()
                 and 'favicon' not in img.lower()
@@ -602,16 +597,22 @@ async def download_pinterest_direct(url, out_path_base):
                 ext = best_img.split('?')[0].split('.')[-1].lower()
                 if ext not in ['jpg', 'jpeg', 'png', 'webp', 'gif']: ext = 'jpg'
                 img_out = f"{out_path_base}.{ext}"
-                async with session.get(best_img, timeout=aiohttp.ClientTimeout(total=15)) as r:
-                    if r.status == 200:
-                        with open(img_out, "wb") as f:
-                            while True:
-                                chunk = await r.content.read(65536)
-                                if not chunk: break
-                                f.write(chunk)
-                        return True, "image", img_out
+                dl_headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": "https://www.pinterest.com/"
+                }
+                async with aiohttp.ClientSession(headers=dl_headers) as dl_session:
+                    async with dl_session.get(best_img, timeout=aiohttp.ClientTimeout(total=15)) as r:
+                        if r.status == 200:
+                            with open(img_out, "wb") as f:
+                                while True:
+                                    chunk = await r.content.read(65536)
+                                    if not chunk: break
+                                    f.write(chunk)
+                            if os.path.exists(img_out) and os.path.getsize(img_out) > 1024:
+                                return True, "image", img_out
     except Exception as e:
-        print(f"Pinterest direct error: {e}")
+        print(f"Pinterest direct error: {e}", flush=True)
 
     return False, None, None
 
