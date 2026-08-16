@@ -667,7 +667,8 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
     if 'youtube' in url or 'youtu.be' in url:
         ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['ios', 'android']
+                'player_client': ['android', 'ios'],
+                'player_skip': ['webpage', 'configs']
             }
         }
         ydl_opts['concurrent_fragment_downloads'] = 5
