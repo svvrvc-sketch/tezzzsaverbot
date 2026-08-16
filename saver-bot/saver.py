@@ -558,13 +558,14 @@ async def download_instagram_direct(url, out_path):
 
 async def download_pinterest_direct(url, out_path_base):
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.pinterest.com/"
     }
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            async with session.get(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=12)) as resp:
                 final_url = str(resp.url)
                 if final_url.rstrip('/') == "https://www.pinterest.com" or ("pinterest.com/pin/" not in final_url and "pin.it" not in url):
                     print(f"Pinterest havola o'chirilgan yoki bosh sahifaga yo'naltirildi: {final_url}", flush=True)
@@ -574,22 +575,26 @@ async def download_pinterest_direct(url, out_path_base):
             clean_html = html.replace(r'\/', '/').replace(r'\u002F', '/')
 
             # 1. Video pinlarni qidirish (.mp4 yoki .m3u8)
-            video_matches = re.findall(r'(https?://[a-zA-Z0-9.-]*pinimg\.com/videos/[a-zA-Z0-9_./-]+\.(?:mp4|m3u8))', clean_html)
+            video_matches = re.findall(r'(https?://[a-zA-Z0-9.-]*pinimg\.com/videos/[^\s"\'<>]+\.(?:mp4|m3u8)[^\s"\'<>]*)', clean_html)
             if not video_matches:
-                video_matches = re.findall(r'(https?://(?:v|v1|v2|media)\.pinimg\.com/[a-zA-Z0-9_./-]+\.(?:mp4|m3u8))', clean_html)
+                video_matches = re.findall(r'(https?://(?:v|v1|v2|media)\.pinimg\.com/[^\s"\'<>]+\.(?:mp4|m3u8)[^\s"\'<>]*)', clean_html)
             if not video_matches:
                 video_matches = re.findall(r'<meta[^>]+property=["\']og:video(?::secure_url)?["\'][^>]+content=["\']([^"\']+\.(?:mp4|m3u8))["\']', clean_html)
             if not video_matches:
                 video_matches = re.findall(r'<source[^>]+src=["\']([^"\']+\.(?:mp4|m3u8))["\']', clean_html)
 
+            # MP4 videolarni birinchi o'ringa qo'yish (720w, 720p yoki boshqa mp4)
             best_video = None
-            for v in video_matches:
-                v = v.replace('&amp;', '&')
-                if ".mp4" in v:
-                    if "720p" in v or not best_video:
+            mp4_list = [v.replace('&amp;', '&') for v in video_matches if '.mp4' in v]
+            if mp4_list:
+                for v in mp4_list:
+                    if '720w' in v or '720p' in v or 'expMp4' in v:
                         best_video = v
-                elif not best_video:
-                    best_video = v
+                        break
+                if not best_video:
+                    best_video = mp4_list[0]
+            elif video_matches:
+                best_video = video_matches[0].replace('&amp;', '&')
 
             if best_video:
                 print(f"[Pinterest] Video topildi: {best_video}", flush=True)
