@@ -61,6 +61,30 @@ if COOKIE_DATA and (not os.path.exists(COOKIE_FILE) or os.path.getsize(COOKIE_FI
     except Exception as e:
         print(f"Cookie faylini saqlashda xatolik: {e}")
 
+# JSON yoki Netscape formatini avtomatik moslashtirish
+if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+    try:
+        with open(COOKIE_FILE, 'r', encoding='utf-8', errors='ignore') as f:
+            c_text = f.read().strip()
+        if c_text.startswith('[') and c_text.endswith(']'):
+            import json as _json
+            cookies_json = _json.loads(c_text)
+            netscape_lines = ["# Netscape HTTP Cookie File\n"]
+            for c in cookies_json:
+                domain = c.get('domain', '')
+                flag = 'TRUE' if domain.startswith('.') else 'FALSE'
+                path = c.get('path', '/')
+                secure = 'TRUE' if c.get('secure', False) else 'FALSE'
+                expiration = str(int(c.get('expirationDate', 2147483647)))
+                name = c.get('name', '')
+                value = c.get('value', '')
+                netscape_lines.append(f"{domain}\t{flag}\t{path}\t{secure}\t{expiration}\t{name}\t{value}\n")
+            with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
+                f.writelines(netscape_lines)
+            print("✅ JSON formatdagi kuki avtomatik ravishda Netscape formatiga o'tkazildi.")
+    except Exception as conv_err:
+        print(f"Kuki formatini tekshirishda xatolik: {conv_err}")
+
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
@@ -686,22 +710,28 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
     is_yt = 'youtube' in url or 'youtu.be' in url
     
     if is_yt:
-        # YouTube uchun zamonaviy client strategiyalari (bot tekshiruvi va datacenter IP blokirovkasini aylanib o'tish)
+        # YouTube uchun ko'p bosqichli client va kuki strategiyalari
+        has_cookies = bool(os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0)
         client_configs = [
-            ['tv_embedded', 'android'],
-            ['tv_embedded'],
-            ['android', 'ios'],
-            ['mweb', 'android', 'ios'],
-            ['web', 'mweb']
+            (['web', 'mweb'], has_cookies),
+            (['mweb', 'android'], False),
+            (['tv_embedded', 'android'], False),
+            (['android', 'ios'], False),
+            (['web'], has_cookies)
         ]
         ydl_opts['concurrent_fragment_downloads'] = 5
     else:
-        client_configs = [None]
+        client_configs = [(None, bool(os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0))]
 
     last_error = None
-    for clients in client_configs:
+    for clients, use_cookie in client_configs:
         try:
             current_opts = dict(ydl_opts)
+            if not use_cookie and 'cookiefile' in current_opts:
+                del current_opts['cookiefile']
+            elif use_cookie and os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+                current_opts['cookiefile'] = COOKIE_FILE
+
             if is_yt and clients:
                 current_opts['extractor_args'] = {
                     'youtube': {
@@ -713,7 +743,7 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
                 return info
         except Exception as e:
             last_error = e
-            print(f"yt-dlp client urinishi ({clients}) xatosi: {e}")
+            print(f"yt-dlp client urinishi ({clients}, cookie={use_cookie}) xatosi: {e}")
             continue
 
     if last_error:
