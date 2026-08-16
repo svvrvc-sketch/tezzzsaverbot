@@ -559,20 +559,34 @@ async def download_pinterest_direct(url, out_path_base):
             if best_video:
                 print(f"[Pinterest] Video topildi: {best_video}", flush=True)
                 v_out = f"{out_path_base}.mp4"
-                dl_headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "Referer": "https://www.pinterest.com/"
-                }
-                async with aiohttp.ClientSession(headers=dl_headers) as dl_session:
-                    async with dl_session.get(best_video, timeout=aiohttp.ClientTimeout(total=30)) as r:
-                        if r.status == 200:
-                            with open(v_out, "wb") as f:
-                                while True:
-                                    chunk = await r.content.read(65536)
-                                    if not chunk: break
-                                    f.write(chunk)
-                            if os.path.exists(v_out) and os.path.getsize(v_out) > 1024:
-                                return True, "video", v_out
+                if ".m3u8" in best_video and FFMPEG_PATH:
+                    cmd = [
+                        FFMPEG_PATH, '-y',
+                        '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\nReferer: https://www.pinterest.com/\r\n',
+                        '-i', best_video,
+                        '-c', 'copy',
+                        '-movflags', '+faststart',
+                        v_out
+                    ]
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, lambda: subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                    if os.path.exists(v_out) and os.path.getsize(v_out) > 1024:
+                        return True, "video", v_out
+                else:
+                    dl_headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Referer": "https://www.pinterest.com/"
+                    }
+                    async with aiohttp.ClientSession(headers=dl_headers) as dl_session:
+                        async with dl_session.get(best_video, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                            if r.status == 200:
+                                with open(v_out, "wb") as f:
+                                    while True:
+                                        chunk = await r.content.read(65536)
+                                        if not chunk: break
+                                        f.write(chunk)
+                                if os.path.exists(v_out) and os.path.getsize(v_out) > 1024:
+                                    return True, "video", v_out
 
             # 2. Rasm pinlarni qidirish (Original sifat .png, .jpg)
             image_matches = re.findall(r'(https?://i\.pinimg\.com/originals/[a-zA-Z0-9_./-]+\.(?:jpg|jpeg|png|webp|gif))', clean_html)
@@ -653,7 +667,7 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
     if 'youtube' in url or 'youtu.be' in url:
         ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['android', 'web']
+                'player_client': ['ios', 'android']
             }
         }
         ydl_opts['concurrent_fragment_downloads'] = 5
