@@ -50,6 +50,17 @@ REQUIRED_CHANNEL = os.getenv('REQUIRED_CHANNEL', '@openwebacademy')
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB Telegram Bot API limiti
 PROXY_URL = os.getenv('PROXY_URL', '')  # Agar proxy bo'lsa (masalan, http://127.0.0.1:1080 yoki vpn)
 
+# Cookie sozlamalari (Render va boshqa serverlar uchun)
+COOKIE_FILE = os.getenv('COOKIE_FILE', 'cookies.txt')
+COOKIE_DATA = os.getenv('COOKIE_DATA') or os.getenv('YOUTUBE_COOKIES')
+if COOKIE_DATA and (not os.path.exists(COOKIE_FILE) or os.path.getsize(COOKIE_FILE) == 0):
+    try:
+        with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
+            f.write(COOKIE_DATA.strip())
+        print(f"✅ Cookie fayli ({COOKIE_FILE}) muvaffaqiyatli saqlandi.")
+    except Exception as e:
+        print(f"Cookie faylini saqlashda xatolik: {e}")
+
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
@@ -631,18 +642,18 @@ async def download_pinterest_direct(url, out_path_base):
     return False, None, None
 
 def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
-    # Universal format tanlash
+    # Universal format tanlash (har xil platformalar va YouTube uchun)
     if is_audio:
-        fmt = 'ba/b'
+        fmt = 'ba/b/bestaudio/best'
     elif quality:
         if str(quality) == '360':
-            fmt = 'bv*[height<=360]+ba/b[height<=360]/bv*+ba/b'
+            fmt = 'bv*[height<=360]+ba/b[height<=360]/bv*+ba/b/best[height<=360]/18/best/b'
         elif str(quality) == '720':
-            fmt = 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b'
+            fmt = 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b/best[height<=720]/22/18/best/b'
         else:
-            fmt = f'bv*[height<={quality}]+ba/b[height<={quality}]/bv*+ba/b'
+            fmt = f'bv*[height<={quality}]+ba/b[height<={quality}]/bv*+ba/b/best[height<={quality}]/18/best/b'
     else:
-        fmt = 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b'
+        fmt = 'bv*[height<=720]+ba/b[height<=720]/bv*+ba/b/best[height<=720]/22/18/best/b'
 
     ydl_opts = {
         'format': fmt,
@@ -651,8 +662,13 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
-        'socket_timeout': 15,
+        'socket_timeout': 20,
         'max_filesize': MAX_FILE_SIZE,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
 
     if FFMPEG_PATH:
@@ -664,18 +680,44 @@ def download_via_ytdlp(url, out_template, is_audio=False, quality=None):
     if PROXY_URL:
         ydl_opts['proxy'] = PROXY_URL
 
-    if 'youtube' in url or 'youtu.be' in url:
-        ydl_opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['android', 'ios'],
-                'player_skip': ['webpage', 'configs']
-            }
-        }
-        ydl_opts['concurrent_fragment_downloads'] = 5
+    if os.path.exists(COOKIE_FILE) and os.path.getsize(COOKIE_FILE) > 0:
+        ydl_opts['cookiefile'] = COOKIE_FILE
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        return info
+    is_yt = 'youtube' in url or 'youtu.be' in url
+    
+    if is_yt:
+        # YouTube uchun zamonaviy client strategiyalari (bot tekshiruvi va datacenter IP blokirovkasini aylanib o'tish)
+        client_configs = [
+            ['tv_embedded', 'android'],
+            ['tv_embedded'],
+            ['android', 'ios'],
+            ['mweb', 'android', 'ios'],
+            ['web', 'mweb']
+        ]
+        ydl_opts['concurrent_fragment_downloads'] = 5
+    else:
+        client_configs = [None]
+
+    last_error = None
+    for clients in client_configs:
+        try:
+            current_opts = dict(ydl_opts)
+            if is_yt and clients:
+                current_opts['extractor_args'] = {
+                    'youtube': {
+                        'player_client': clients
+                    }
+                }
+            with yt_dlp.YoutubeDL(current_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return info
+        except Exception as e:
+            last_error = e
+            print(f"yt-dlp client urinishi ({clients}) xatosi: {e}")
+            continue
+
+    if last_error:
+        raise last_error
 
 def prepare_video_for_telegram(video_path):
     if not FFMPEG_PATH or not os.path.exists(video_path):
