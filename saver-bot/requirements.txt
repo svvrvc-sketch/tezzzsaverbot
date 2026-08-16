@@ -1,8 +1,8 @@
-aiogram==3.14.0
-yt-dlp[default]>=2025.01.01
-aiohttp==3.10.11
+aiogram>=3.14.0
+yt-dlp>=2025.01.01
+aiohttp>=3.9.0
 pydantic>=2.9.0
-supabase==2.4.0
+supabase>=2.4.0
 python-dotenv>=1.0.0
 imageio-ffmpeg>=0.5.1
 beautifulsoup4>=4.12.0
